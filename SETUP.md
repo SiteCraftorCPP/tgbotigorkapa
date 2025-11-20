@@ -1,151 +1,110 @@
-# 🚀 Быстрый старт
+# 🚀 Установка Ультраконсервативного Крипто-Бота
 
-## 1. Настройка переменных окружения
+## ⚡ Быстрый старт
 
-Создайте файл `.env` в корне проекта с следующим содержимым:
-
-```env
-# XT.com API
-XT_API_KEY=4e74f8bf-7424-4521-ba71-ded15621319a
-XT_API_SECRET=your_xt_api_secret_here
-
-# Telegram
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHANNEL_ID=@your_channel
-TELEGRAM_ADMIN_CHANNEL_ID=@your_admin_channel
-
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=crypto_signals
-DB_USER=postgres
-DB_PASSWORD=your_password
-
-# Bot Settings
-RISK_PERCENT=1.0
-DEFAULT_LEVERAGE=10
-MIN_AI_SCORE=70
-TIMEFRAMES=1m,5m,15m,1h,4h
-TRADING_PAIRS=BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT
-
-# System
-LOG_LEVEL=INFO
-BOT_ENABLED=True
-```
-
-## 2. Получение Telegram Bot Token
-
-1. Найдите @BotFather в Telegram
-2. Отправьте `/newbot`
-3. Следуйте инструкциям
-4. Скопируйте токен в `.env` → `TELEGRAM_BOT_TOKEN`
-
-## 3. Создание Telegram каналов
-
-### Основной канал (для сигналов):
-1. Создайте публичный канал
-2. Добавьте бота как администратора
-3. Скопируйте username канала (например, @my_signals) в `.env` → `TELEGRAM_CHANNEL_ID`
-
-### Админ-канал (для логов):
-1. Создайте приватный канал
-2. Добавьте бота как администратора
-3. Скопируйте username в `.env` → `TELEGRAM_ADMIN_CHANNEL_ID`
-
-## 4. Настройка PostgreSQL
-
-### Windows:
-
-1. Скачайте PostgreSQL с https://www.postgresql.org/download/windows/
-2. Установите
-3. Откройте pgAdmin или psql
-4. Выполните:
-
-```sql
-CREATE DATABASE crypto_signals;
-```
-
-5. Обновите параметры в `.env`:
-   - `DB_HOST=localhost`
-   - `DB_PORT=5432`
-   - `DB_NAME=crypto_signals`
-   - `DB_USER=postgres`
-   - `DB_PASSWORD=ваш_пароль`
-
-### Или используйте Docker:
+### 1. Клонирование
 
 ```bash
-docker run -d \
-  --name postgres-crypto \
-  -e POSTGRES_DB=crypto_signals \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=your_password \
-  -p 5432:5432 \
-  postgres:14
+cd C:\Users\MOD PC COMPANY\Desktop
+cd tgbotigorkapa
 ```
 
-## 5. Установка зависимостей
+### 2. Виртуальное окружение
 
-```bash
-# Создать виртуальное окружение
+```powershell
 python -m venv venv
-
-# Активировать (Windows)
 venv\Scripts\activate
-
-# Активировать (Linux/Mac)
-source venv/bin/activate
-
-# Установить пакеты
 pip install -r requirements.txt
 ```
 
-## 6. Инициализация БД (опционально)
+### 3. PostgreSQL
 
-База создастся автоматически при первом запуске, либо вручную:
+**Установить:** https://www.postgresql.org/download/windows/
 
-```bash
-psql -U postgres -d crypto_signals -f database/migrations.sql
+**Создать БД:**
+
+```powershell
+# Открыть SQL Shell (psql)
+CREATE DATABASE crypto_signals;
 ```
 
-## 7. Добавление администраторов
+### 4. Настройка .env
 
-**ВАЖНО!** Без админов вы не сможете управлять ботом!
+Файл `.env` уже создан с API ключами XT.com!
 
-### Узнать свой Telegram ID:
-1. Напишите @userinfobot в Telegram
-2. Отправьте `/start`
-3. Скопируйте ваш ID
+Отредактируйте:
 
-### Добавить админов в БД:
+```env
+# XT.com - УЖЕ НАСТРОЕНО!
+XT_API_KEY=4e74f8bf-7424-4521-ba71-ded15621319a
+XT_API_SECRET=a0d77d78d99e2b7cec4a941277fccef00877660c
 
-```sql
--- Подключиться к БД
+# Telegram - НАСТРОЙТЕ!
+TELEGRAM_BOT_TOKEN=получите_от_BotFather
+TELEGRAM_CHANNEL_ID=@ваш_канал
+TELEGRAM_ADMIN_CHANNEL_ID=@админ_канал
+
+# PostgreSQL - НАСТРОЙТЕ!
+DB_PASSWORD=ваш_пароль_postgresql
+```
+
+### 5. Telegram бот
+
+**Создать бота:**
+1. Найдите @BotFather в Telegram
+2. Отправьте `/newbot`
+3. Следуйте инструкциям
+4. Скопируйте токен → `.env` → `TELEGRAM_BOT_TOKEN`
+
+**Создать каналы:**
+1. **Основной канал** (для сигналов):
+   - Создайте публичный канал
+   - Добавьте бота как администратора
+   - Скопируйте @username → `.env` → `TELEGRAM_CHANNEL_ID`
+
+2. **Админ-канал** (для логов):
+   - Создайте приватный канал
+   - Добавьте бота как администратора  
+   - Скопируйте @username → `.env` → `TELEGRAM_ADMIN_CHANNEL_ID`
+
+### 6. Добавить админов в БД
+
+**КРИТИЧЕСКИ ВАЖНО!**
+
+**Узнать Telegram ID:**
+- Напишите @userinfobot → `/start`
+- Скопируйте ваш ID (например: 123456789)
+
+**Добавить в БД:**
+
+```powershell
+# Подключиться к БД
 psql -U postgres -d crypto_signals
 
--- Добавить первого админа (себя)
+# Выполнить:
 INSERT INTO admins (telegram_id, username, first_name) 
-VALUES ('ваш_telegram_id', 'ваш_username', 'Ваше Имя');
+VALUES ('ваш_telegram_id', 'username', 'Имя');
 
--- Добавить второго админа
 INSERT INTO admins (telegram_id, username, first_name) 
 VALUES ('id_второго_админа', 'username', 'Имя');
 
--- Проверить
+# Проверить
 SELECT * FROM admins;
+
+# Выйти
+\q
 ```
 
-**Подробнее см. файл ADMIN_SETUP.md**
+### 7. Запуск
 
-## 8. Запуск бота
-
-```bash
+```powershell
 python main.py
 ```
 
-## 9. Проверка работы
+### 8. Проверка
 
-### В админ-канале должно появиться сообщение:
+**В админ-канале появится:**
+
 ```
 🤖 Бот запущен
 
@@ -154,123 +113,180 @@ python main.py
 Мин. AI Score: 70
 ```
 
-### Проверка прав админа:
+**Напишите боту:**
 
-Напишите боту в личку:
 ```
 /start
+/config
 ```
 
-Если вы админ, увидите расширенное меню с админ-командами.
-
-### Настройка бота:
+**Настройте:**
 
 ```
-/config             # Текущие настройки
-/set_pairs BTC/USDT ETH/USDT
-/set_ai_score 75
-/enable             # Включить бота
+/set_pairs BTC/USDT ETH/USDT SOL/USDT
+/set_timeframes 15m 1h 4h
+/set_ai_score 80
+/enable
 ```
 
-## 9. Тестирование
+---
 
-### Проверка соединения с биржей:
+## 🔧 Расширенная настройка
+
+### Риск-параметры (в коде)
+
+Файл `database/risk_manager.py`:
 
 ```python
-from exchange.xt_client import XTClient
-import asyncio
-
-async def test():
-    client = XTClient()
-    ticker = await client.get_ticker('BTC/USDT')
-    print(ticker)
-
-asyncio.run(test())
+MAX_RISK_PER_TRADE = 1.0      # 1% на сделку
+MAX_TOTAL_RISK = 5.0          # 5% суммарный
+MAX_SIGNALS_PER_DAY = 20      # Макс сигналов/день
+COOLDOWN_HOURS = 4            # Cooldown для монеты
 ```
 
-### Проверка Telegram:
+### Фильтры (в коде)
 
-Отправьте команду `/start` боту в личку или в канал.
+Файл `analysis/conservative_filters.py`:
 
-## 10. Мониторинг
-
-- **Логи**: `logs/bot_YYYYMMDD.log`
-- **Админ-канал**: все ошибки и уведомления
-- **База данных**: таблица `signals` для всех сигналов
-
-## Возможные проблемы
-
-### Ошибка подключения к PostgreSQL:
-
-```
-FATAL: password authentication failed for user "postgres"
+```python
+TOP_COINS_LIMIT = 100         # Только ТОП-100
+MIN_VOLUME_24H = 5_000_000    # $5M минимум
+MAX_SPREAD_PERCENT = 0.3      # 0.3% максимум
+MAX_ATR_RATIO = 2.5           # Макс размер стопа
 ```
 
-**Решение**: Проверьте пароль в `.env` и совпадает ли он с паролем PostgreSQL.
+---
 
-### Ошибка API ключа XT.com:
+## 🆘 Частые проблемы
+
+### Ошибка БД:
 
 ```
-ccxt.AuthenticationError: XT {"returnCode":10004}
+FATAL: password authentication failed
 ```
 
-**Решение**: 
-1. Проверьте правильность API ключа
-2. Убедитесь, что у ключа есть права на чтение рынка (futures)
-3. Проверьте, что IP не заблокирован
+**Решение:** Проверьте пароль в `.env` → `DB_PASSWORD`
+
+### Ошибка API XT.com:
+
+```
+ccxt.AuthenticationError
+```
+
+**Решение:** API ключи уже в `.env`, но проверьте права на XT.com:
+- Зайдите на XT.com → API Management
+- Проверьте, что API активен
+- Права: Read Only (для сигналов достаточно)
 
 ### Ошибка Telegram:
 
 ```
-telegram.error.Unauthorized: Forbidden
+Unauthorized: Forbidden
 ```
 
-**Решение**:
+**Решение:**
 1. Проверьте токен бота
-2. Убедитесь, что бот добавлен в канал как администратор
-3. Проверьте правильность username канала (@channel)
+2. Добавьте бота в каналы как **администратора**
+3. Username каналов должен начинаться с `@`
 
-### Нет данных от биржи:
+### Команды не работают:
 
 ```
-❌ Ошибка получения OHLCV для BTC/USDT
+❌ У вас нет прав
 ```
 
-**Решение**:
-1. Проверьте интернет-соединение
-2. Проверьте, что биржа доступна
-3. Проверьте формат пары (должно быть `BTC/USDT`, а не `BTCUSDT`)
+**Решение:** Добавьте себя в таблицу `admins` (см. шаг 6)
 
-## Полезные команды
+---
 
-```bash
-# Просмотр логов в реальном времени (Linux/Mac)
-tail -f logs/bot_*.log
+## 📊 Мониторинг
 
-# Просмотр активных сигналов в БД
-psql -U postgres -d crypto_signals -c "SELECT * FROM signals WHERE status='ACTIVE';"
+### Логи:
 
-# Статистика
-psql -U postgres -d crypto_signals -c "SELECT * FROM pair_stats;"
-psql -U postgres -d crypto_signals -c "SELECT * FROM daily_stats;"
+```powershell
+# Просмотр логов
+type logs\bot_YYYYMMDD.log
+
+# Последние 50 строк
+Get-Content logs\bot_*.log -Tail 50
 ```
 
-## Рекомендации
+### База данных:
 
-1. **Начните с малого**: используйте 2-3 пары для начала
-2. **Мониторинг**: следите за админ-каналом первые дни
-3. **Бэкапы**: настройте автоматический бэкап БД
-4. **Безопасность**: не публикуйте `.env` файл
-5. **Тестирование**: первые дни следите за качеством сигналов
+```sql
+-- Активные сигналы
+SELECT * FROM signals WHERE status IN ('WAITING', 'IN_POSITION');
 
-## Поддержка
+-- Статистика
+SELECT * FROM pair_stats;
+SELECT * FROM daily_stats;
 
-При проблемах проверьте:
-- ✅ Все API ключи заполнены
-- ✅ PostgreSQL запущен
-- ✅ Бот добавлен в каналы
-- ✅ Виртуальное окружение активировано
-- ✅ Все пакеты установлены
+-- Последние сигналы
+SELECT signal_id, ticker, direction, status, ai_score, created_at 
+FROM signals 
+ORDER BY created_at DESC 
+LIMIT 10;
+```
 
-Удачи! 🚀
+---
 
+## ✅ Чек-лист готовности
+
+Перед запуском убедитесь:
+
+- [x] PostgreSQL установлен и запущен
+- [x] База `crypto_signals` создана
+- [x] `.env` файл заполнен
+- [x] Telegram бот создан
+- [x] 2 канала созданы и бот добавлен как админ
+- [x] Админы добавлены в БД
+- [x] Зависимости установлены (`pip install -r requirements.txt`)
+
+---
+
+## 🎓 Дополнительно
+
+### Методы мониторинга
+
+Файл `main_monitoring.py` содержит дополнительные методы.
+
+**Скопируйте их в `main.py` в класс `CryptoSignalBot`:**
+
+- `_check_waiting_signal()` - проверка сигналов в ожидании
+- `_check_position_levels()` - проверка TP/SL
+- `_hit_tp()` - обработка достижения TP
+- _close_on_stop()` - закрытие по стоп-лоссу
+
+### Тестирование
+
+```powershell
+python test_bot.py
+```
+
+Проверяет:
+- ✅ Подключение к БД
+- ✅ Подключение к XT.com
+- ✅ Технический анализ
+- ✅ Генерацию сигналов
+
+---
+
+## 🚀 Готово!
+
+После настройки бот будет:
+
+1. **Анализировать рынок** каждые 5 минут
+2. **Генерировать сигналы** с AI Score и фильтрами
+3. **Публиковать** в Telegram-канал
+4. **Отслеживать** каждые 5 секунд:
+   - Активацию входа
+   - Достижение TP1/TP2/TP3/TP4
+   - Срабатывание SL
+   - Перенос в безубыток
+5. **Отменять** неактуальные сигналы автоматически
+
+**Все настройки управляются через Telegram!**
+
+---
+
+Успехов! 📈
