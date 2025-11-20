@@ -83,6 +83,8 @@ After **TP1** → Stop moves to **breakeven** / После **TP1** → стоп 
 6. ✅ **Distance to opposite level** (min 1.5 ATR) / **Дистанция до противоуровня** (мин. 1.5 ATR)
 7. ✅ **Trend on 2 timeframes** / **Тренд на 2 таймфреймах**
 8. ✅ **Pullback present** / **Наличие pullback**
+9. ✅ **BTC/ETH correlation filter** ⚡ *NEW* / **Фильтр корреляции с BTC/ETH** ⚡ *НОВОЕ*
+10. ✅ **Time of day restrictions** (no trading 0-5 UTC) ⚡ *NEW* / **Ограничение времён суток** (не торгуем 0-5 UTC) ⚡ *НОВОЕ*
 
 ---
 
@@ -106,14 +108,14 @@ After **TP1** → Stop moves to **breakeven** / После **TP1** → стоп 
 
 ## ⚡ Automatic Monitoring / Автоматический Мониторинг
 
-**EN**: Bot tracks **every 5 seconds**:
+**EN**: Bot tracks **every 5 seconds** (market analysis every 5 minutes):
 - ✅ Entry activation
 - ✅ TP1/TP2/TP3/TP4 reached
 - ✅ SL triggered
 - ✅ Breakeven move
 - ✅ Cancellation conditions
 
-**RU**: Бот отслеживает **каждые 5 секунд**:
+**RU**: Бот отслеживает **каждые 5 секунд** (анализ рынка каждые 5 минут):
 - ✅ Активация входа
 - ✅ Достижение TP1/TP2/TP3/TP4
 - ✅ Срабатывание SL

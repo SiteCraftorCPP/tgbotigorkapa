@@ -394,15 +394,6 @@ class CryptoSignalBot:
         
         log_info(f"🛑 Стоп-лосс {signal.signal_id} @ {price}, PnL: {pnl:.2f}%")
     
-    async def run_cycle(self):
-        """Один цикл работы бота"""
-        
-        # Анализ рынка
-        await self.analyze_market()
-        
-        # Мониторинг активных сигналов
-        await self.monitor_active_signals()
-    
     async def run(self):
         """Основной цикл работы"""
         await self.initialize()
@@ -411,12 +402,22 @@ class CryptoSignalBot:
         
         log_info("🤖 Бот запущен в основном цикле")
         
+        # Счётчик циклов для разной частоты
+        cycle_count = 0
+        
         while self.is_running:
             try:
-                await self.run_cycle()
+                # Мониторинг активных сигналов КАЖДЫЕ 5 СЕКУНД
+                await self.monitor_active_signals()
                 
-                # Пауза между циклами (5 минут)
-                await asyncio.sleep(300)
+                # Анализ рынка КАЖДЫЕ 5 МИНУТ (60 циклов * 5 сек = 300 сек)
+                if cycle_count % 60 == 0:
+                    await self.analyze_market()
+                
+                cycle_count += 1
+                
+                # Пауза между циклами (5 СЕКУНД для мониторинга согласно ТЗ)
+                await asyncio.sleep(5)
                 
             except KeyboardInterrupt:
                 log_info("⏹ Получен сигнал остановки")

@@ -17,6 +17,12 @@ class ConservativeFilters:
     MIN_ATR_RATIO = 1.5  # Минимальная дистанция до ближайшего уровня в ATR
     MAX_ATR_RATIO = 2.5  # Максимальный размер стопа в ATR
     
+    # Ограничение времён суток (UTC часы, когда НЕ торговать)
+    FORBIDDEN_HOURS = [0, 1, 2, 3, 4, 5]  # Ночные часы низкой ликвидности
+    
+    # Минимальная корреляция с BTC/ETH для альткоинов
+    MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
+    
     @staticmethod
     async def check_top_100(ticker: str, client: XTClient) -> bool:
         """Проверка, что монета в ТОП-100 по капитализации"""
@@ -140,6 +146,47 @@ class ConservativeFilters:
         return distance >= (atr * ConservativeFilters.MIN_ATR_RATIO)
     
     @staticmethod
+    def check_time_of_day() -> bool:
+        """Проверка времени суток (не торгуем ночью UTC)"""
+        from datetime import datetime
+        current_hour = datetime.utcnow().hour
+        return current_hour not in ConservativeFilters.FORBIDDEN_HOURS
+    
+    @staticmethod
+    async def check_btc_eth_correlation(ticker: str, direction: str, client: XTClient) -> bool:
+        """
+        Проверка корреляции с BTC/ETH
+        Для альткоинов: не входим против сильного движения BTC/ETH
+        """
+        
+        # Для самих BTC/ETH этот фильтр не применяется
+        if ticker in ['BTC/USDT', 'ETH/USDT', 'BTCUSDT', 'ETHUSDT']:
+            return True
+        
+        try:
+            # Получаем данные BTC
+            btc_ticker = await client.get_ticker('BTC/USDT')
+            if not btc_ticker:
+                return True  # Если нет данных, пропускаем фильтр
+            
+            # Получаем изменение цены BTC за последний час
+            btc_change = btc_ticker.get('percentage', 0)
+            
+            # Если BTC сильно падает (-2% и более), не открываем лонги по альткоинам
+            if direction == 'LONG' and btc_change < -2.0:
+                return False
+            
+            # Если BTC сильно растёт (+2% и более), не открываем шорты по альткоинам
+            if direction == 'SHORT' and btc_change > 2.0:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"Ошибка проверки BTC корреляции: {e}")
+            return True  # При ошибке пропускаем фильтр
+    
+    @staticmethod
     async def check_all_filters(ticker: str, df: pd.DataFrame, entry: float, 
                                stop: float, atr: float, direction: str, 
                                client: XTClient) -> Dict:
@@ -185,6 +232,16 @@ class ConservativeFilters:
         # 6. Дистанция до противоположного уровня
         if not ConservativeFilters.check_distance_to_opposite_level(df, entry, direction, atr):
             result['reasons'].append("Близко противонаправленный уровень")
+            return result
+        
+        # 7. Ограничение времён суток (согласно п.6 инструкции)
+        if not ConservativeFilters.check_time_of_day():
+            result['reasons'].append("Неблагоприятное время суток (UTC)")
+            return result
+        
+        # 8. BTC/ETH корреляция (согласно п.4 инструкции)
+        if not await ConservativeFilters.check_btc_eth_correlation(ticker, direction, client):
+            result['reasons'].append("Неблагоприятное движение BTC/ETH")
             return result
         
         # Все фильтры пройдены
