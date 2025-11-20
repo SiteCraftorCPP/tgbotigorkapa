@@ -119,7 +119,12 @@ SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     """Создание всех таблиц"""
+    from database.user_preferences import UserPreference
+    
+    # Импорт Base из user_preferences для регистрации модели
+    UserPreference.metadata.create_all(engine)
     Base.metadata.create_all(engine)
+    
     print("✅ База данных инициализирована")
     
     # Инициализация настроек по умолчанию

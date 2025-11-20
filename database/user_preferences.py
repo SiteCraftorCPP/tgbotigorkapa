@@ -2,13 +2,10 @@
 Управление настройками пользователей (язык и т.д.)
 """
 
-from .models import SessionLocal
-from sqlalchemy import Column, Integer, String, DateTime, create_engine
-from sqlalchemy.ext.declarative import declarative_base
+from .models import SessionLocal, Base, engine
+from sqlalchemy import Column, Integer, String, DateTime
 from datetime import datetime
 from typing import Optional
-
-Base = declarative_base()
 
 class UserPreference(Base):
     __tablename__ = 'user_preferences'
