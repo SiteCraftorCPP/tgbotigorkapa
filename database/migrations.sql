@@ -14,8 +14,16 @@ CREATE TABLE IF NOT EXISTS signals (
     
     entry_price FLOAT NOT NULL,
     stop_loss FLOAT NOT NULL,
+    stop_loss_breakeven FLOAT,
     take_profit_1 FLOAT NOT NULL,
     take_profit_2 FLOAT NOT NULL,
+    take_profit_3 FLOAT NOT NULL,
+    take_profit_4 FLOAT NOT NULL,
+    
+    tp1_hit BOOLEAN DEFAULT FALSE,
+    tp2_hit BOOLEAN DEFAULT FALSE,
+    tp3_hit BOOLEAN DEFAULT FALSE,
+    tp4_hit BOOLEAN DEFAULT FALSE,
     
     risk_percent FLOAT DEFAULT 1.0,
     leverage INTEGER DEFAULT 10,
@@ -23,8 +31,9 @@ CREATE TABLE IF NOT EXISTS signals (
     
     ai_score INTEGER NOT NULL,
     
-    status VARCHAR(20) DEFAULT 'ACTIVE',
+    status VARCHAR(30) DEFAULT 'WAITING',
     result VARCHAR(10),
+    cancellation_reason TEXT,
     pnl_percent FLOAT,
     pnl_usdt FLOAT,
     risk_reward FLOAT,
@@ -33,7 +42,14 @@ CREATE TABLE IF NOT EXISTS signals (
     closed_at TIMESTAMP,
     
     timeframe VARCHAR(10),
-    notes TEXT
+    timeframe_higher VARCHAR(10),
+    market_cap_rank INTEGER,
+    volume_24h FLOAT,
+    spread_percent FLOAT,
+    atr_value FLOAT,
+    notes TEXT,
+    activated_at TIMESTAMP,
+    partial_exits TEXT
 );
 
 -- Таблица статистики

@@ -62,9 +62,18 @@ class CryptoSignalBot:
                         log_warning(f"Нет данных для {pair} {timeframe}")
                         continue
                     
-                    # Генерация сигнала
-                    generator = SignalGenerator(pair, timeframe, df)
-                    signal = generator.generate_signal()
+                    # Получение старшего таймфрейма
+                    from analysis.multi_timeframe import MultiTimeframeAnalysis
+                    higher_tf = MultiTimeframeAnalysis.get_higher_timeframe(timeframe)
+                    df_higher = await self.xt_client.get_ohlcv(pair, higher_tf, limit=200)
+                    
+                    if df_higher.empty:
+                        log_warning(f"Нет данных старшего ТФ для {pair} {higher_tf}")
+                        continue
+                    
+                    # Генерация сигнала (теперь async и с доп. параметрами)
+                    generator = SignalGenerator(pair, timeframe, df, df_higher, self.xt_client)
+                    signal = await generator.generate_signal()
                     
                     if signal:
                         # Проверка дубликатов (не генерируем повторные сигналы для той же пары)
@@ -79,7 +88,7 @@ class CryptoSignalBot:
                                 log_info(f"⏭ Пропуск {pair}: уже есть активный сигнал")
                                 continue
                             
-                            # Сохранение в БД
+                            # Сохранение в БД (с 4 TP и доп. полями)
                             db_signal = Signal(
                                 signal_id=signal['signal_id'],
                                 ticker=signal['ticker'],
@@ -88,10 +97,17 @@ class CryptoSignalBot:
                                 stop_loss=signal['stop_loss'],
                                 take_profit_1=signal['take_profit_1'],
                                 take_profit_2=signal['take_profit_2'],
+                                take_profit_3=signal['take_profit_3'],
+                                take_profit_4=signal['take_profit_4'],
                                 risk_percent=signal['risk_percent'],
                                 leverage=signal['leverage'],
                                 ai_score=signal['ai_score'],
-                                timeframe=signal['timeframe']
+                                timeframe=signal['timeframe'],
+                                timeframe_higher=signal.get('timeframe_higher'),
+                                volume_24h=signal.get('volume_24h'),
+                                spread_percent=signal.get('spread_percent'),
+                                atr_value=signal.get('atr_value'),
+                                status='WAITING'  # Новый сигнал в ожидании
                             )
                             
                             db.add(db_signal)
@@ -114,11 +130,14 @@ class CryptoSignalBot:
         log_info("✅ Анализ рынка завершён")
     
     async def monitor_active_signals(self):
-        """Мониторинг активных сигналов"""
+        """Мониторинг активных сигналов (WAITING + IN_POSITION)"""
         db = get_db()
         
         try:
-            active_signals = db.query(Signal).filter(Signal.status == 'ACTIVE').all()
+            # Мониторинг сигналов в ожидании входа И уже в позиции
+            active_signals = db.query(Signal).filter(
+                Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
+            ).all()
             
             for signal in active_signals:
                 try:
@@ -130,22 +149,13 @@ class CryptoSignalBot:
                     
                     current_price = ticker['last']
                     
-                    # Проверка достижения уровней
-                    if signal.direction == 'LONG':
-                        if current_price <= signal.stop_loss:
-                            await self._close_signal(signal, 'SL', current_price)
-                        elif current_price >= signal.take_profit_2:
-                            await self._close_signal(signal, 'TP2', current_price)
-                        elif current_price >= signal.take_profit_1:
-                            await self._close_signal(signal, 'TP1', current_price)
+                    # WAITING: проверка активации входа или отмены
+                    if signal.status == 'WAITING':
+                        await self._check_waiting_signal(signal, current_price, db)
                     
-                    else:  # SHORT
-                        if current_price >= signal.stop_loss:
-                            await self._close_signal(signal, 'SL', current_price)
-                        elif current_price <= signal.take_profit_2:
-                            await self._close_signal(signal, 'TP2', current_price)
-                        elif current_price <= signal.take_profit_1:
-                            await self._close_signal(signal, 'TP1', current_price)
+                    # IN_POSITION: проверка TP/SL
+                    elif signal.status in ['IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT']:
+                        await self._check_position_levels(signal, current_price, db)
                 
                 except Exception as e:
                     log_error(str(e), f"мониторинга сигнала {signal.signal_id}")

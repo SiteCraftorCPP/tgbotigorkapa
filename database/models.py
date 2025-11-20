@@ -18,8 +18,17 @@ class Signal(Base):
     # Entry/Exit levels
     entry_price = Column(Float, nullable=False)
     stop_loss = Column(Float, nullable=False)
+    stop_loss_breakeven = Column(Float)  # SL после переноса в безубыток
     take_profit_1 = Column(Float, nullable=False)
     take_profit_2 = Column(Float, nullable=False)
+    take_profit_3 = Column(Float, nullable=False)
+    take_profit_4 = Column(Float, nullable=False)
+    
+    # TP flags
+    tp1_hit = Column(Boolean, default=False)
+    tp2_hit = Column(Boolean, default=False)
+    tp3_hit = Column(Boolean, default=False)
+    tp4_hit = Column(Boolean, default=False)
     
     # Risk management
     risk_percent = Column(Float, default=1.0)
@@ -30,8 +39,9 @@ class Signal(Base):
     ai_score = Column(Integer, nullable=False)
     
     # Result tracking
-    status = Column(String(20), default='ACTIVE')  # ACTIVE/TP1/TP2/SL/CANCELLED
+    status = Column(String(30), default='WAITING')  # WAITING/IN_POSITION/TP1_HIT/TP2_HIT/TP3_HIT/TP4_HIT/STOPPED_OUT/CANCELLED/CLOSED_FULL_TP
     result = Column(String(10))  # WIN/LOSS
+    cancellation_reason = Column(Text)  # Причина отмены
     pnl_percent = Column(Float)
     pnl_usdt = Column(Float)
     risk_reward = Column(Float)
@@ -42,7 +52,14 @@ class Signal(Base):
     
     # Additional data
     timeframe = Column(String(10))
+    timeframe_higher = Column(String(10))  # Старший таймфрейм для подтверждения
+    market_cap_rank = Column(Integer)  # Место в ТОП-100
+    volume_24h = Column(Float)  # Объём за 24ч
+    spread_percent = Column(Float)  # Спред
+    atr_value = Column(Float)  # ATR на момент сигнала
     notes = Column(Text)
+    activated_at = Column(DateTime)  # Время активации входа
+    partial_exits = Column(Text)  # JSON с историей частичных выходов
     
     def __repr__(self):
         return f"<Signal {self.signal_id} {self.ticker} {self.direction}>"

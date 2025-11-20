@@ -90,39 +90,63 @@ class TelegramBot:
             print(f"❌ Ошибка отправки в админ-канал: {e}")
     
     def _format_signal_message(self, signal: dict) -> str:
-        """Форматирование сигнала для Telegram"""
+        """Форматирование ультраконсервативного сигнала"""
         
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
         
-        # Расчёт потенциальной прибыли
+        # Расчёт потенциальной прибыли для всех 4 TP
         entry = signal['entry_price']
         tp1 = signal['take_profit_1']
         tp2 = signal['take_profit_2']
+        tp3 = signal['take_profit_3']
+        tp4 = signal['take_profit_4']
+        stop = signal['stop_loss']
         
         if signal['direction'] == 'LONG':
             profit_tp1 = ((tp1 - entry) / entry) * 100
             profit_tp2 = ((tp2 - entry) / entry) * 100
+            profit_tp3 = ((tp3 - entry) / entry) * 100
+            profit_tp4 = ((tp4 - entry) / entry) * 100
+            risk_percent = ((entry - stop) / entry) * 100
         else:
             profit_tp1 = ((entry - tp1) / entry) * 100
             profit_tp2 = ((entry - tp2) / entry) * 100
+            profit_tp3 = ((entry - tp3) / entry) * 100
+            profit_tp4 = ((entry - tp4) / entry) * 100
+            risk_percent = ((stop - entry) / entry) * 100
+        
+        # Risk/Reward ratio
+        rr = profit_tp1 / risk_percent if risk_percent > 0 else 0
         
         message = f"""
-{emoji} *Futures сигнал*
+{emoji} *УЛЬТРАКОНСЕРВАТИВНЫЙ СИГНАЛ*
 
-📊 Монета: *{signal['ticker']}*
-📍 Направление: *{signal['direction']}*
+📊 *{signal['ticker']}* | {signal['direction']}
+🕐 {signal['timeframe']} → {signal.get('timeframe_higher', 'H4')}
 
-💰 Вход: *{signal['entry_price']}*
-🛑 Стоп: *{signal['stop_loss']}*
-🎯 TP1: *{signal['take_profit_1']}* (+{profit_tp1:.2f}%)
-🎯 TP2: *{signal['take_profit_2']}* (+{profit_tp2:.2f}%)
+💰 *Вход:* `{entry}`
+🛑 *Стоп:* `{stop}` (-{risk_percent:.2f}%)
 
-⚠️ Риск: *{signal['risk_percent']}%*
-📈 Плечо: *х{signal['leverage']}*
-🤖 AI Score: *{signal['ai_score']}/100*
+🎯 *Take Profit (4 уровня):*
+├ TP1: `{tp1}` (+{profit_tp1:.1f}%) [25%]
+├ TP2: `{tp2}` (+{profit_tp2:.1f}%) [25%]
+├ TP3: `{tp3}` (+{profit_tp3:.1f}%) [25%]
+└ TP4: `{tp4}` (+{profit_tp4:.1f}%) [25%]
 
-🕐 Таймфрейм: {signal['timeframe']}
-🆔 ID: `{signal['signal_id']}`
+📈 *Параметры:*
+• Риск: *{signal['risk_percent']}%* (макс 1%)
+• Плечо: *x{signal['leverage']}*
+• RR: *{rr:.1f}:1*
+• AI Score: *{signal['ai_score']}/100*
+
+📊 *Фильтры:*
+• Объём 24ч: ${signal.get('volume_24h', 0)/1_000_000:.1f}M
+• Спред: {signal.get('spread_percent', 0):.2f}%
+• ATR: {signal.get('atr_value', 0):.2f}
+
+⚠️ *После TP1 - перенос SL в безубыток!*
+
+🆔 `{signal['signal_id']}`
 """
         return message.strip()
     
