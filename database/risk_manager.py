@@ -12,7 +12,7 @@ class RiskManager:
     
     # Константы
     MAX_RISK_PER_TRADE = 1.0  # 1% на сделку
-    MAX_TOTAL_RISK = 5.0  # 5% суммарный риск
+    MAX_TOTAL_RISK = 20.0  # 20% суммарный риск
     MAX_SIGNALS_PER_DAY = 20
     MAX_SIGNALS_PER_COIN = 1
     COOLDOWN_HOURS = 4  # Cooldown для монеты после закрытия

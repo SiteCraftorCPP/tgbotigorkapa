@@ -138,6 +138,19 @@ COMMENT ON TABLE bot_stats IS 'Статистика работы бота';
 COMMENT ON TABLE bot_config IS 'Конфигурация бота';
 COMMENT ON TABLE admins IS 'Администраторы бота';
 
+-- Таблица предпочтений пользователей (язык)
+CREATE TABLE IF NOT EXISTS user_preferences (
+    id SERIAL PRIMARY KEY,
+    telegram_id VARCHAR(50) UNIQUE NOT NULL,
+    language VARCHAR(5) DEFAULT 'en',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_prefs_telegram_id ON user_preferences(telegram_id);
+
+COMMENT ON TABLE user_preferences IS 'Настройки пользователей (язык)';
+
 -- ВАЖНО: После создания БД добавьте своих админов вручную:
 -- INSERT INTO admins (telegram_id, username, first_name) VALUES ('YOUR_TELEGRAM_ID', 'your_username', 'Your Name');
 -- INSERT INTO admins (telegram_id, username, first_name) VALUES ('SECOND_ADMIN_ID', 'second_username', 'Second Name');

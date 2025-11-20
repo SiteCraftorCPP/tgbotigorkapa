@@ -1,10 +1,12 @@
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from telegram.constants import ParseMode
 import config
 from database.models import Signal, BotStats, get_db
 from database.config_manager import ConfigManager
 from database.admin_manager import AdminManager
+from database.user_preferences import UserPreferenceManager
+from .languages import t, get_user_lang
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from functools import wraps
@@ -41,6 +43,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("stats", self.cmd_stats))
         self.app.add_handler(CommandHandler("today", self.cmd_today))
         self.app.add_handler(CommandHandler("week", self.cmd_week))
+        self.app.add_handler(CommandHandler("language", self.cmd_language))
         
         # Админ команды - управление ботом
         self.app.add_handler(CommandHandler("enable", self.cmd_enable))
@@ -61,6 +64,9 @@ class TelegramBot:
         
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
+        
+        # Callback handlers для кнопок
+        self.app.add_handler(CallbackQueryHandler(self.handle_callback))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал"""
@@ -177,43 +183,47 @@ class TelegramBot:
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
         user_id = str(update.effective_user.id)
-        is_admin = AdminManager.is_admin(user_id)
+        lang = get_user_lang(user_id)
         
-        message = """
-🤖 *Крипто-сигнальный бот*
-
-📊 Публичные команды:
-/stats - Общая статистика
-/today - Статистика за сегодня
-/week - Статистика за неделю
-/help - Помощь
-"""
-        
-        if is_admin:
-            message += """
-⚙️ Админ-команды:
-/config - Текущие настройки
-/enable - Включить бота
-/disable - Выключить бота
-
-🔧 Настройка параметров:
-/set_pairs - Изменить торгуемые пары
-/set_timeframes - Изменить таймфреймы
-/set_ai_score - Минимальный AI Score
-/set_risk - Процент риска
-/set_leverage - Плечо
-
-👥 Управление админами:
-/add_admin - Добавить админа
-/remove_admin - Удалить админа
-/list_admins - Список админов
-"""
-        
+        message = t('cmd_start', lang)
         await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
     
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /help"""
-        await self.cmd_start(update, context)
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
+        await update.message.reply_text(t('cmd_help', lang))
+    
+    async def cmd_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /language - выбор языка"""
+        keyboard = [
+            [
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "Select language / Выберите язык:",
+            reply_markup=reply_markup
+        )
+    
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка нажатий на кнопки"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = str(update.effective_user.id)
+        
+        # Обработка выбора языка
+        if query.data.startswith("lang_"):
+            lang = query.data.split("_")[1]
+            UserPreferenceManager.set_language(user_id, lang)
+            
+            message = t('language_changed', lang)
+            await query.edit_message_text(message)
     
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - общая статистика"""
