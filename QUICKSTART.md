@@ -50,13 +50,23 @@ DB_PASSWORD=your_postgresql_password
 - Copy usernames to `.env`
 
 **6. Add Admins to Database**
-```bash
-# Get your Telegram ID from @userinfobot
-psql -U postgres -d crypto_signals
 
-# Then:
+Get your Telegram ID from @userinfobot, then:
+
+```bash
+psql -U postgres -d crypto_signals
+```
+
+```sql
 INSERT INTO admins (telegram_id, username, first_name) 
 VALUES ('your_telegram_id', 'username', 'Name');
+
+-- Add second admin if needed
+INSERT INTO admins (telegram_id, username, first_name) 
+VALUES ('second_admin_id', 'username2', 'Name2');
+
+-- Check admins
+SELECT * FROM admins;
 ```
 
 **7. Run**
@@ -124,13 +134,23 @@ DB_PASSWORD=ваш_пароль_postgresql
 - Скопируйте username в `.env`
 
 **6. Добавить админов в БД**
-```bash
-# Получите ваш Telegram ID от @userinfobot
-psql -U postgres -d crypto_signals
 
-# Затем:
+Получите ваш Telegram ID от @userinfobot, затем:
+
+```bash
+psql -U postgres -d crypto_signals
+```
+
+```sql
 INSERT INTO admins (telegram_id, username, first_name) 
 VALUES ('ваш_telegram_id', 'username', 'Имя');
+
+-- Добавить второго админа при необходимости
+INSERT INTO admins (telegram_id, username, first_name) 
+VALUES ('id_второго_админа', 'username2', 'Имя2');
+
+-- Проверить админов
+SELECT * FROM admins;
 ```
 
 **7. Запустить**
@@ -150,10 +170,7 @@ python main.py
 
 ## 📚 Full Documentation / Полная Документация
 
-- **README.md** - Main info / Основная информация
-- **SPECIFICATION.md** - Technical specs / Техническое задание
-- **SETUP.md** - Detailed setup / Подробная установка
-- **ADMIN_SETUP.md** - Admin configuration / Настройка админов
+- **README.md** - Complete project documentation / Полная документация проекта
 
 ---
 
