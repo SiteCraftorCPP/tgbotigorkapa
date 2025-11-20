@@ -62,11 +62,23 @@ CREATE TABLE IF NOT EXISTS bot_config (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Таблица администраторов
+CREATE TABLE IF NOT EXISTS admins (
+    id SERIAL PRIMARY KEY,
+    telegram_id VARCHAR(50) UNIQUE NOT NULL,
+    username VARCHAR(100),
+    first_name VARCHAR(100),
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
 -- Индексы для оптимизации
-CREATE INDEX idx_signals_ticker ON signals(ticker);
-CREATE INDEX idx_signals_status ON signals(status);
-CREATE INDEX idx_signals_created_at ON signals(created_at);
-CREATE INDEX idx_signals_direction ON signals(direction);
+CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker);
+CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
+CREATE INDEX IF NOT EXISTS idx_signals_created_at ON signals(created_at);
+CREATE INDEX IF NOT EXISTS idx_signals_direction ON signals(direction);
+CREATE INDEX IF NOT EXISTS idx_admins_telegram_id ON admins(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_admins_active ON admins(is_active);
 
 -- Представление для статистики по парам
 CREATE OR REPLACE VIEW pair_stats AS
@@ -108,4 +120,9 @@ ON CONFLICT (key) DO NOTHING;
 COMMENT ON TABLE signals IS 'Торговые сигналы';
 COMMENT ON TABLE bot_stats IS 'Статистика работы бота';
 COMMENT ON TABLE bot_config IS 'Конфигурация бота';
+COMMENT ON TABLE admins IS 'Администраторы бота';
+
+-- ВАЖНО: После создания БД добавьте своих админов вручную:
+-- INSERT INTO admins (telegram_id, username, first_name) VALUES ('YOUR_TELEGRAM_ID', 'your_username', 'Your Name');
+-- INSERT INTO admins (telegram_id, username, first_name) VALUES ('SECOND_ADMIN_ID', 'second_username', 'Second Name');
 

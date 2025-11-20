@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Optional, Dict
 from .indicators import TechnicalAnalysis
+from database.config_manager import ConfigManager
 import config
 import uuid
 from datetime import datetime
@@ -33,8 +34,9 @@ class SignalGenerator:
         # Расчёт AI Score
         ai_score = self._calculate_ai_score(trend, momentum, volume, volatility)
         
-        # Фильтр по минимальному скору
-        if ai_score < config.MIN_AI_SCORE:
+        # Фильтр по минимальному скору (из БД)
+        min_score = ConfigManager.get_min_ai_score()
+        if ai_score < min_score:
             return None
         
         # Определение направления
@@ -66,8 +68,8 @@ class SignalGenerator:
             'take_profit_1': signal_params['tp1'],
             'take_profit_2': signal_params['tp2'],
             'ai_score': ai_score,
-            'risk_percent': config.RISK_PERCENT,
-            'leverage': config.DEFAULT_LEVERAGE,
+            'risk_percent': ConfigManager.get_risk_percent(),
+            'leverage': ConfigManager.get_leverage(),
             'created_at': datetime.utcnow(),
             'analysis': {
                 'trend': trend,

@@ -82,6 +82,20 @@ class BotConfig(Base):
         return f"<BotConfig {self.key}={self.value}>"
 
 
+class Admin(Base):
+    __tablename__ = 'admins'
+    
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(String(50), unique=True, nullable=False)
+    username = Column(String(100))
+    first_name = Column(String(100))
+    added_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+    
+    def __repr__(self):
+        return f"<Admin {self.telegram_id} (@{self.username})>"
+
+
 # Database initialization
 engine = create_engine(config.DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
@@ -90,6 +104,42 @@ def init_db():
     """Создание всех таблиц"""
     Base.metadata.create_all(engine)
     print("✅ База данных инициализирована")
+    
+    # Инициализация настроек по умолчанию
+    _init_default_config()
+
+
+def _init_default_config():
+    """Инициализация настроек по умолчанию"""
+    db = SessionLocal()
+    try:
+        # Проверка наличия настроек
+        existing = db.query(BotConfig).first()
+        if existing:
+            return
+        
+        # Дефолтные настройки
+        defaults = [
+            ('bot_enabled', 'true', 'Включение/выключение бота'),
+            ('min_ai_score', '70', 'Минимальный AI Score для публикации'),
+            ('risk_percent', '1.0', 'Процент риска на сделку'),
+            ('default_leverage', '10', 'Плечо по умолчанию'),
+            ('trading_pairs', 'BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT', 'Торгуемые пары'),
+            ('timeframes', '1m,5m,15m,1h,4h', 'Таймфреймы для анализа'),
+        ]
+        
+        for key, value, desc in defaults:
+            config_item = BotConfig(key=key, value=value, description=desc)
+            db.add(config_item)
+        
+        db.commit()
+        print("✅ Настройки по умолчанию созданы")
+        
+    except Exception as e:
+        print(f"⚠️ Ошибка инициализации настроек: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 def get_db():
     """Получение сессии БД"""

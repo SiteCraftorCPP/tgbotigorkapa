@@ -1,10 +1,30 @@
 from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
 import config
 from database.models import Signal, BotStats, get_db
+from database.config_manager import ConfigManager
+from database.admin_manager import AdminManager
 from sqlalchemy import func
 from datetime import datetime, timedelta
+from functools import wraps
+
+def admin_only(func):
+    """Декоратор для проверки прав админа"""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = str(update.effective_user.id)
+        
+        if not AdminManager.is_admin(user_id):
+            await update.message.reply_text(
+                "❌ У вас нет прав для выполнения этой команды.\n"
+                "Только администраторы могут использовать эту команду."
+            )
+            return
+        
+        return await func(self, update, context)
+    return wrapper
+
 
 class TelegramBot:
     """Telegram бот для публикации сигналов и управления"""
@@ -16,13 +36,31 @@ class TelegramBot:
     
     def _setup_handlers(self):
         """Настройка обработчиков команд"""
+        # Публичные команды
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("stats", self.cmd_stats))
         self.app.add_handler(CommandHandler("today", self.cmd_today))
         self.app.add_handler(CommandHandler("week", self.cmd_week))
+        
+        # Админ команды - управление ботом
         self.app.add_handler(CommandHandler("enable", self.cmd_enable))
         self.app.add_handler(CommandHandler("disable", self.cmd_disable))
-        self.app.add_handler(CommandHandler("pairs", self.cmd_pairs))
+        self.app.add_handler(CommandHandler("config", self.cmd_config))
+        
+        # Админ команды - настройка параметров
+        self.app.add_handler(CommandHandler("set_pairs", self.cmd_set_pairs))
+        self.app.add_handler(CommandHandler("set_timeframes", self.cmd_set_timeframes))
+        self.app.add_handler(CommandHandler("set_ai_score", self.cmd_set_ai_score))
+        self.app.add_handler(CommandHandler("set_risk", self.cmd_set_risk))
+        self.app.add_handler(CommandHandler("set_leverage", self.cmd_set_leverage))
+        
+        # Админ команды - управление админами
+        self.app.add_handler(CommandHandler("add_admin", self.cmd_add_admin))
+        self.app.add_handler(CommandHandler("remove_admin", self.cmd_remove_admin))
+        self.app.add_handler(CommandHandler("list_admins", self.cmd_list_admins))
+        
+        # Команда помощи
+        self.app.add_handler(CommandHandler("help", self.cmd_help))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал"""
@@ -114,18 +152,44 @@ class TelegramBot:
     
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
+        user_id = str(update.effective_user.id)
+        is_admin = AdminManager.is_admin(user_id)
+        
         message = """
 🤖 *Крипто-сигнальный бот*
 
-Доступные команды:
+📊 Публичные команды:
 /stats - Общая статистика
 /today - Статистика за сегодня
 /week - Статистика за неделю
-/pairs - Торгуемые пары
-/enable - Включить бота (админ)
-/disable - Выключить бота (админ)
+/help - Помощь
 """
+        
+        if is_admin:
+            message += """
+⚙️ Админ-команды:
+/config - Текущие настройки
+/enable - Включить бота
+/disable - Выключить бота
+
+🔧 Настройка параметров:
+/set_pairs - Изменить торгуемые пары
+/set_timeframes - Изменить таймфреймы
+/set_ai_score - Минимальный AI Score
+/set_risk - Процент риска
+/set_leverage - Плечо
+
+👥 Управление админами:
+/add_admin - Добавить админа
+/remove_admin - Удалить админа
+/list_admins - Список админов
+"""
+        
         await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+    
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /help"""
+        await self.cmd_start(update, context)
     
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - общая статистика"""
@@ -236,30 +300,224 @@ class TelegramBot:
         finally:
             db.close()
     
-    async def cmd_pairs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Список торгуемых пар"""
-        pairs = "\n".join([f"• {pair}" for pair in config.TRADING_PAIRS])
+    @admin_only
+    async def cmd_config(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Текущая конфигурация"""
+        pairs = ConfigManager.get_trading_pairs()
+        timeframes = ConfigManager.get_timeframes()
+        enabled = ConfigManager.is_bot_enabled()
+        ai_score = ConfigManager.get_min_ai_score()
+        risk = ConfigManager.get_risk_percent()
+        leverage = ConfigManager.get_leverage()
+        
+        status = "✅ Включен" if enabled else "⏸ Выключен"
         
         message = f"""
-📊 *Торгуемые пары*
+⚙️ *Текущие настройки бота*
 
-{pairs}
+🤖 Статус: {status}
 
-⏰ Таймфреймы: {", ".join(config.TIMEFRAMES)}
+📊 *Торговля:*
+• Пары: {', '.join(pairs)}
+• Таймфреймы: {', '.join(timeframes)}
+
+🎯 *Параметры:*
+• Мин. AI Score: {ai_score}/100
+• Риск: {risk}%
+• Плечо: x{leverage}
+
+Для изменения используйте команды /set_*
 """
         await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
     
+    @admin_only
     async def cmd_enable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Включение бота (только для админов)"""
-        config.BOT_ENABLED = True
+        """Включение бота"""
+        ConfigManager.enable_bot()
         await update.message.reply_text("✅ Бот включен")
         await self.send_admin_message("✅ Бот включен")
     
+    @admin_only
     async def cmd_disable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Выключение бота (только для админов)"""
-        config.BOT_ENABLED = False
+        """Выключение бота"""
+        ConfigManager.disable_bot()
         await update.message.reply_text("⏸ Бот выключен")
         await self.send_admin_message("⏸ Бот выключен")
+    
+    @admin_only
+    async def cmd_set_pairs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Установка торгуемых пар"""
+        if not context.args:
+            current = ConfigManager.get_trading_pairs()
+            await update.message.reply_text(
+                f"📊 Текущие пары: {', '.join(current)}\n\n"
+                f"Использование:\n"
+                f"`/set_pairs BTC/USDT ETH/USDT SOL/USDT`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        pairs = [p.strip() for p in context.args]
+        ConfigManager.set_trading_pairs(pairs)
+        
+        await update.message.reply_text(
+            f"✅ Торгуемые пары обновлены:\n{', '.join(pairs)}"
+        )
+        await self.send_admin_message(
+            f"⚙️ Пары изменены: {', '.join(pairs)}"
+        )
+    
+    @admin_only
+    async def cmd_set_timeframes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Установка таймфреймов"""
+        if not context.args:
+            current = ConfigManager.get_timeframes()
+            await update.message.reply_text(
+                f"⏰ Текущие таймфреймы: {', '.join(current)}\n\n"
+                f"Использование:\n"
+                f"`/set_timeframes 5m 15m 1h 4h`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        timeframes = [t.strip() for t in context.args]
+        ConfigManager.set_timeframes(timeframes)
+        
+        await update.message.reply_text(
+            f"✅ Таймфреймы обновлены:\n{', '.join(timeframes)}"
+        )
+        await self.send_admin_message(
+            f"⚙️ Таймфреймы изменены: {', '.join(timeframes)}"
+        )
+    
+    @admin_only
+    async def cmd_set_ai_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Установка минимального AI Score"""
+        if not context.args:
+            current = ConfigManager.get_min_ai_score()
+            await update.message.reply_text(
+                f"🎯 Текущий мин. AI Score: {current}/100\n\n"
+                f"Использование:\n"
+                f"`/set_ai_score 75`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            score = int(context.args[0])
+            if not 0 <= score <= 100:
+                raise ValueError
+            
+            ConfigManager.set('min_ai_score', str(score))
+            await update.message.reply_text(f"✅ Мин. AI Score установлен: {score}/100")
+            await self.send_admin_message(f"⚙️ Мин. AI Score изменён: {score}/100")
+        except:
+            await update.message.reply_text("❌ Ошибка: укажите число от 0 до 100")
+    
+    @admin_only
+    async def cmd_set_risk(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Установка процента риска"""
+        if not context.args:
+            current = ConfigManager.get_risk_percent()
+            await update.message.reply_text(
+                f"⚠️ Текущий риск: {current}%\n\n"
+                f"Использование:\n"
+                f"`/set_risk 1.5`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            risk = float(context.args[0])
+            if not 0 < risk <= 10:
+                raise ValueError
+            
+            ConfigManager.set('risk_percent', str(risk))
+            await update.message.reply_text(f"✅ Риск установлен: {risk}%")
+            await self.send_admin_message(f"⚙️ Риск изменён: {risk}%")
+        except:
+            await update.message.reply_text("❌ Ошибка: укажите число от 0 до 10")
+    
+    @admin_only
+    async def cmd_set_leverage(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Установка плеча"""
+        if not context.args:
+            current = ConfigManager.get_leverage()
+            await update.message.reply_text(
+                f"📈 Текущее плечо: x{current}\n\n"
+                f"Использование:\n"
+                f"`/set_leverage 20`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            leverage = int(context.args[0])
+            if not 1 <= leverage <= 125:
+                raise ValueError
+            
+            ConfigManager.set('default_leverage', str(leverage))
+            await update.message.reply_text(f"✅ Плечо установлено: x{leverage}")
+            await self.send_admin_message(f"⚙️ Плечо изменено: x{leverage}")
+        except:
+            await update.message.reply_text("❌ Ошибка: укажите число от 1 до 125")
+    
+    @admin_only
+    async def cmd_add_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Добавление админа"""
+        if not context.args:
+            await update.message.reply_text(
+                "Использование:\n"
+                "`/add_admin USER_ID`\n\n"
+                "Чтобы узнать ID, попросите пользователя написать @userinfobot",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        telegram_id = context.args[0]
+        AdminManager.add_admin(telegram_id)
+        
+        await update.message.reply_text(f"✅ Админ {telegram_id} добавлен")
+        await self.send_admin_message(f"👥 Новый админ добавлен: {telegram_id}")
+    
+    @admin_only
+    async def cmd_remove_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Удаление админа"""
+        if not context.args:
+            await update.message.reply_text(
+                "Использование:\n"
+                "`/remove_admin USER_ID`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        telegram_id = context.args[0]
+        
+        # Проверка, что не удаляем последнего админа
+        if AdminManager.count_admins() <= 1:
+            await update.message.reply_text("❌ Нельзя удалить последнего админа!")
+            return
+        
+        AdminManager.remove_admin(telegram_id)
+        await update.message.reply_text(f"✅ Админ {telegram_id} удалён")
+        await self.send_admin_message(f"👥 Админ удалён: {telegram_id}")
+    
+    @admin_only
+    async def cmd_list_admins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Список админов"""
+        admins = AdminManager.get_all_admins()
+        
+        if not admins:
+            await update.message.reply_text("📝 Нет активных админов")
+            return
+        
+        message = "👥 *Список администраторов:*\n\n"
+        for admin in admins:
+            username = f"@{admin.username}" if admin.username else "нет username"
+            name = admin.first_name or "нет имени"
+            message += f"• {name} ({username})\n  ID: `{admin.telegram_id}`\n\n"
+        
+        await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
     
     def run(self):
         """Запуск бота"""

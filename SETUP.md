@@ -108,21 +108,68 @@ pip install -r requirements.txt
 psql -U postgres -d crypto_signals -f database/migrations.sql
 ```
 
-## 7. Запуск бота
+## 7. Добавление администраторов
+
+**ВАЖНО!** Без админов вы не сможете управлять ботом!
+
+### Узнать свой Telegram ID:
+1. Напишите @userinfobot в Telegram
+2. Отправьте `/start`
+3. Скопируйте ваш ID
+
+### Добавить админов в БД:
+
+```sql
+-- Подключиться к БД
+psql -U postgres -d crypto_signals
+
+-- Добавить первого админа (себя)
+INSERT INTO admins (telegram_id, username, first_name) 
+VALUES ('ваш_telegram_id', 'ваш_username', 'Ваше Имя');
+
+-- Добавить второго админа
+INSERT INTO admins (telegram_id, username, first_name) 
+VALUES ('id_второго_админа', 'username', 'Имя');
+
+-- Проверить
+SELECT * FROM admins;
+```
+
+**Подробнее см. файл ADMIN_SETUP.md**
+
+## 8. Запуск бота
 
 ```bash
 python main.py
 ```
 
-## 8. Проверка работы
+## 9. Проверка работы
 
-В админ-канале должно появиться сообщение:
+### В админ-канале должно появиться сообщение:
 ```
 🤖 Бот запущен
 
 Торгуемые пары: 4
 Таймфреймы: 1m, 5m, 15m, 1h, 4h
 Мин. AI Score: 70
+```
+
+### Проверка прав админа:
+
+Напишите боту в личку:
+```
+/start
+```
+
+Если вы админ, увидите расширенное меню с админ-командами.
+
+### Настройка бота:
+
+```
+/config             # Текущие настройки
+/set_pairs BTC/USDT ETH/USDT
+/set_ai_score 75
+/enable             # Включить бота
 ```
 
 ## 9. Тестирование

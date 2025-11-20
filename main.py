@@ -4,6 +4,7 @@ from exchange.xt_client import XTClient
 from analysis.signal_generator import SignalGenerator
 from telegram_bot.bot import TelegramBot
 from database.models import init_db, get_db, Signal
+from database.config_manager import ConfigManager
 from utils.logger import logger, log_signal, log_error, log_info, log_warning
 import config
 
@@ -23,12 +24,17 @@ class CryptoSignalBot:
         init_db()
         log_info("✅ База данных инициализирована")
         
+        # Загрузка настроек из БД
+        pairs = ConfigManager.get_trading_pairs()
+        timeframes = ConfigManager.get_timeframes()
+        min_score = ConfigManager.get_min_ai_score()
+        
         # Отправка уведомления в админ-канал
         await self.telegram_bot.send_admin_message(
             "🤖 *Бот запущен*\n\n"
-            f"Торгуемые пары: {len(config.TRADING_PAIRS)}\n"
-            f"Таймфреймы: {', '.join(config.TIMEFRAMES)}\n"
-            f"Мин. AI Score: {config.MIN_AI_SCORE}"
+            f"Торгуемые пары: {len(pairs)}\n"
+            f"Таймфреймы: {', '.join(timeframes)}\n"
+            f"Мин. AI Score: {min_score}"
         )
         
         log_info("✅ Инициализация завершена")
@@ -36,14 +42,18 @@ class CryptoSignalBot:
     async def analyze_market(self):
         """Анализ рынка и генерация сигналов"""
         
-        if not config.BOT_ENABLED:
+        # Загрузка настроек из БД
+        if not ConfigManager.is_bot_enabled():
             log_warning("Бот выключен, анализ пропущен")
             return
         
         log_info("📊 Начало анализа рынка...")
         
-        for pair in config.TRADING_PAIRS:
-            for timeframe in config.TIMEFRAMES:
+        pairs = ConfigManager.get_trading_pairs()
+        timeframes = ConfigManager.get_timeframes()
+        
+        for pair in pairs:
+            for timeframe in timeframes:
                 try:
                     # Получение данных
                     df = await self.xt_client.get_ohlcv(pair, timeframe, limit=500)
