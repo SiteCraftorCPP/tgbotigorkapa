@@ -35,8 +35,8 @@ class Signal(Base):
     leverage = Column(Integer, default=10)
     position_size = Column(Float)
     
-    # AI Score
-    ai_score = Column(Integer, nullable=False)
+    # AI Score (deprecated - no longer used)
+    ai_score = Column(Integer, nullable=True, default=None)
     
     # Result tracking
     status = Column(String(30), default='WAITING')  # WAITING/IN_POSITION/TP1_HIT/TP2_HIT/TP3_HIT/TP4_HIT/STOPPED_OUT/CANCELLED/CLOSED_FULL_TP
@@ -114,7 +114,11 @@ class Admin(Base):
 
 
 # Database initialization
-engine = create_engine(config.DATABASE_URL, echo=False)
+# SQLite требует connect_args для внешних ключей
+if config.DATABASE_URL.startswith('sqlite'):
+    engine = create_engine(config.DATABASE_URL, echo=False, connect_args={'check_same_thread': False})
+else:
+    engine = create_engine(config.DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
@@ -125,7 +129,7 @@ def init_db():
     UserPreference.metadata.create_all(engine)
     Base.metadata.create_all(engine)
     
-    print("✅ База данных инициализирована")
+    print("OK: База данных инициализирована")
     
     # Инициализация настроек по умолчанию
     _init_default_config()
@@ -155,10 +159,10 @@ def _init_default_config():
             db.add(config_item)
         
         db.commit()
-        print("✅ Настройки по умолчанию созданы")
+        print("OK: Настройки по умолчанию созданы")
         
     except Exception as e:
-        print(f"⚠️ Ошибка инициализации настроек: {e}")
+        print(f"ERROR: Ошибка инициализации настроек: {e}")
         db.rollback()
     finally:
         db.close()

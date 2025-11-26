@@ -2,11 +2,13 @@ import asyncio
 from datetime import datetime
 from exchange.xt_client import XTClient
 from analysis.signal_generator import SignalGenerator
+from analysis.market_filters import MarketFilters
 from telegram_bot.bot import TelegramBot
 from database.models import init_db, get_db, Signal
 from database.config_manager import ConfigManager
-from utils.logger import logger, log_signal, log_error, log_info, log_warning
+from utils.logger import logger, log_signal, log_error, log_info, log_warning, log_filter_summary
 import config
+
 
 class CryptoSignalBot:
     """Главный класс бота"""
@@ -15,39 +17,52 @@ class CryptoSignalBot:
         self.xt_client = XTClient()
         self.telegram_bot = TelegramBot()
         self.is_running = False
+        self.polling_task = None
         
     async def initialize(self):
         """Инициализация бота"""
-        log_info("🚀 Инициализация бота...")
+        log_info("🚀 Initializing bot...")
         
         # Инициализация БД
         init_db()
-        log_info("✅ База данных инициализирована")
+        log_info("✅ Database initialized")
+        
+        # Запуск Telegram бота (polling)
+        # ПРАВИЛЬНЫЙ СПОСОБ для python-telegram-bot 20.x:
+        # Инициализируем app
+        await self.telegram_bot.app.initialize()
+        await self.telegram_bot.app.start()
+        
+        # Запускаем updater для получения обновлений
+        # ВАЖНО: start_polling должен работать постоянно, поэтому запускаем в отдельной задаче
+        # и НЕ ждём её завершения - она работает бесконечно
+        self.polling_task = asyncio.create_task(self._run_telegram_polling())
+        # Не ждём завершения задачи - она работает постоянно
+        await asyncio.sleep(3)  # Даём время на запуск polling
+        log_info("OK: Telegram бот запущен (polling)")
         
         # Загрузка настроек из БД
         pairs = ConfigManager.get_trading_pairs()
         timeframes = ConfigManager.get_timeframes()
-        min_score = ConfigManager.get_min_ai_score()
         
-        # Отправка уведомления в админ-канал
-        await self.telegram_bot.send_admin_message(
-            "🤖 *Бот запущен*\n\n"
-            f"Торгуемые пары: {len(pairs)}\n"
-            f"Таймфреймы: {', '.join(timeframes)}\n"
-            f"Мин. AI Score: {min_score}"
-        )
+        # Send notification to admin channel (English) - DISABLED: only signals are sent
+        # await self.telegram_bot.send_admin_message(
+        #     "🤖 *Bot Started*\n\n"
+        #     f"Trading pairs: {len(pairs)}\n"
+        #     f"Timeframes: {', '.join(timeframes)}"
+        # )
         
-        log_info("✅ Инициализация завершена")
+        log_info("✅ Initialization complete")
     
     async def analyze_market(self):
         """Анализ рынка и генерация сигналов"""
         
         # Загрузка настроек из БД
         if not ConfigManager.is_bot_enabled():
-            log_warning("Бот выключен, анализ пропущен")
+            log_warning("Bot disabled, skipping analysis")
             return
         
-        log_info("📊 Начало анализа рынка...")
+        log_info("📊 Starting market analysis...")
         
         pairs = ConfigManager.get_trading_pairs()
         timeframes = ConfigManager.get_timeframes()
@@ -59,7 +74,7 @@ class CryptoSignalBot:
                     df = await self.xt_client.get_ohlcv(pair, timeframe, limit=500)
                     
                     if df.empty:
-                        log_warning(f"Нет данных для {pair} {timeframe}")
+                        log_warning(f"No data for {pair} {timeframe}")
                         continue
                     
                     # Получение старшего таймфрейма
@@ -68,7 +83,7 @@ class CryptoSignalBot:
                     df_higher = await self.xt_client.get_ohlcv(pair, higher_tf, limit=200)
                     
                     if df_higher.empty:
-                        log_warning(f"Нет данных старшего ТФ для {pair} {higher_tf}")
+                        log_warning(f"No higher TF data for {pair} {higher_tf}")
                         continue
                     
                     # Генерация сигнала (теперь async и с доп. параметрами)
@@ -81,11 +96,11 @@ class CryptoSignalBot:
                         try:
                             recent_signal = db.query(Signal).filter(
                                 Signal.ticker == pair,
-                                Signal.status == 'ACTIVE'
+                                Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
                             ).first()
                             
                             if recent_signal:
-                                log_info(f"⏭ Пропуск {pair}: уже есть активный сигнал")
+                                log_info(f"⏭ Skipping {pair}: active signal exists")
                                 continue
                             
                             # Сохранение в БД (с 4 TP и доп. полями)
@@ -101,7 +116,6 @@ class CryptoSignalBot:
                                 take_profit_4=signal['take_profit_4'],
                                 risk_percent=signal['risk_percent'],
                                 leverage=signal['leverage'],
-                                ai_score=signal['ai_score'],
                                 timeframe=signal['timeframe'],
                                 timeframe_higher=signal.get('timeframe_higher'),
                                 volume_24h=signal.get('volume_24h'),
@@ -113,7 +127,10 @@ class CryptoSignalBot:
                             db.add(db_signal)
                             db.commit()
                             
-                            # Отправка в Telegram
+                            # Record signal time for cooldown
+                            MarketFilters.record_signal_time(pair)
+                            
+                            # Send to Telegram
                             await self.telegram_bot.send_signal(signal)
                             
                             log_signal(signal)
@@ -122,12 +139,17 @@ class CryptoSignalBot:
                             db.close()
                 
                 except Exception as e:
-                    log_error(str(e), f"анализа {pair} {timeframe}")
+                    # Обработка ошибок с удалением emoji для совместимости с Windows
+                    error_str = str(e)
+                    # Убираем emoji символы и другие проблемные символы
+                    import re
+                    error_clean = re.sub(r'[^\x00-\x7F]+', '[?]', error_str)  # Заменяем все non-ASCII на [?]
+                    log_error(error_clean, f"анализа {pair} {timeframe}")
                 
                 # Задержка между запросами (rate limit)
                 await asyncio.sleep(1)
         
-        log_info("✅ Анализ рынка завершён")
+        log_info("✅ Market analysis complete")
     
     async def monitor_active_signals(self):
         """Мониторинг активных сигналов (WAITING + IN_POSITION)"""
@@ -190,14 +212,14 @@ class CryptoSignalBot:
             signal.closed_at = datetime.utcnow()
             db.commit()
             
-            # Уведомление
-            msg = TelegramNotifications.format_cancelled(
-                {'signal_id': signal.signal_id, 'ticker': signal.ticker, 'direction': signal.direction},
-                cancel_reason
-            )
-            await self.telegram_bot.send_admin_message(msg)
+            # Уведомление - DISABLED: only new signals are sent
+            # msg = TelegramNotifications.format_cancelled(
+            #     {'signal_id': signal.signal_id, 'ticker': signal.ticker, 'direction': signal.direction},
+            #     cancel_reason
+            # )
+            # await self.telegram_bot.send_admin_message(msg)
             
-            log_info(f"🚫 Сигнал {signal.signal_id} отменён: {cancel_reason}")
+            log_info(f"🚫 Signal {signal.signal_id} cancelled: {cancel_reason}")
             return
         
         # 2. Проверка активации входа
@@ -216,23 +238,23 @@ class CryptoSignalBot:
             signal.activated_at = datetime.utcnow()
             db.commit()
             
-            # Уведомление
-            msg = TelegramNotifications.format_entry_activated(
-                {
-                    'signal_id': signal.signal_id,
-                    'ticker': signal.ticker,
-                    'direction': signal.direction,
-                    'stop_loss': signal.stop_loss
-                },
-                current_price
-            )
-            await self.telegram_bot.bot.send_message(
-                chat_id=config.TELEGRAM_CHANNEL_ID,
-                text=msg,
-                parse_mode='Markdown'
-            )
+            # Уведомление - DISABLED: only new signals are sent
+            # msg = TelegramNotifications.format_entry_activated(
+            #     {
+            #         'signal_id': signal.signal_id,
+            #         'ticker': signal.ticker,
+            #         'direction': signal.direction,
+            #         'stop_loss': signal.stop_loss
+            #     },
+            #     current_price
+            # )
+            # await self.telegram_bot.bot.send_message(
+            #     chat_id=config.TELEGRAM_CHANNEL_ID,
+            #     text=msg,
+            #     parse_mode='Markdown'
+            # )
             
-            log_info(f"✅ Вход активирован {signal.signal_id} @ {current_price}")
+            log_info(f"✅ Entry activated {signal.signal_id} @ {current_price}")
     
     async def _check_position_levels(self, signal: Signal, current_price: float, db):
         """Проверка достижения TP и SL для позиции"""
@@ -256,19 +278,20 @@ class CryptoSignalBot:
                 signal.closed_at = datetime.utcnow()
                 db.commit()
                 
-                msg = TelegramNotifications.format_full_tp({
-                    'signal_id': signal.signal_id,
-                    'ticker': signal.ticker,
-                    'direction': signal.direction,
-                    'entry_price': signal.entry_price,
-                    'activated_price': signal.entry_price,
-                    'take_profit_4': signal.take_profit_4
-                })
-                await self.telegram_bot.bot.send_message(
-                    chat_id=config.TELEGRAM_CHANNEL_ID,
-                    text=msg,
-                    parse_mode='Markdown'
-                )
+                # Уведомление - DISABLED: only new signals are sent
+                # msg = TelegramNotifications.format_full_tp({
+                #     'signal_id': signal.signal_id,
+                #     'ticker': signal.ticker,
+                #     'direction': signal.direction,
+                #     'entry_price': signal.entry_price,
+                #     'activated_price': signal.entry_price,
+                #     'take_profit_4': signal.take_profit_4
+                # })
+                # await self.telegram_bot.bot.send_message(
+                #     chat_id=config.TELEGRAM_CHANNEL_ID,
+                #     text=msg,
+                #     parse_mode='Markdown'
+                # )
                 return
             
             # Проверка TP3
@@ -318,7 +341,7 @@ class CryptoSignalBot:
     
     async def _hit_tp(self, signal: Signal, tp_number: int, price: float, db):
         """Обработка достижения TP"""
-        from telegram_bot.notifications import TelegramNotifications
+        # from telegram_bot.notifications import TelegramNotifications
         
         # Установка флага
         setattr(signal, f'tp{tp_number}_hit', True)
@@ -329,31 +352,31 @@ class CryptoSignalBot:
         tps_hit = sum([signal.tp1_hit, signal.tp2_hit, signal.tp3_hit, signal.tp4_hit])
         remaining = 100 - (tps_hit * 25)
         
-        # Уведомление
-        msg = TelegramNotifications.format_tp_hit(
-            {
-                'signal_id': signal.signal_id,
-                'ticker': signal.ticker,
-                'direction': signal.direction,
-                'entry_price': signal.entry_price,
-                f'take_profit_{tp_number + 1}': getattr(signal, f'take_profit_{tp_number + 1}', 0) if tp_number < 4 else 0
-            },
-            tp_number,
-            price,
-            remaining
-        )
+        # Уведомление - DISABLED: only new signals are sent
+        # msg = TelegramNotifications.format_tp_hit(
+        #     {
+        #         'signal_id': signal.signal_id,
+        #         'ticker': signal.ticker,
+        #         'direction': signal.direction,
+        #         'entry_price': signal.entry_price,
+        #         f'take_profit_{tp_number + 1}': getattr(signal, f'take_profit_{tp_number + 1}', 0) if tp_number < 4 else 0
+        #     },
+        #     tp_number,
+        #     price,
+        #     remaining
+        # )
+        # 
+        # await self.telegram_bot.bot.send_message(
+        #     chat_id=config.TELEGRAM_CHANNEL_ID,
+        #     text=msg,
+        #     parse_mode='Markdown'
+        # )
         
-        await self.telegram_bot.bot.send_message(
-            chat_id=config.TELEGRAM_CHANNEL_ID,
-            text=msg,
-            parse_mode='Markdown'
-        )
-        
-        log_info(f"🎯 TP{tp_number} достигнут {signal.signal_id} @ {price}")
+        log_info(f"🎯 TP{tp_number} reached {signal.signal_id} @ {price}")
     
     async def _close_on_stop(self, signal: Signal, price: float, db):
         """Закрытие по стоп-лоссу"""
-        from telegram_bot.notifications import TelegramNotifications
+        # from telegram_bot.notifications import TelegramNotifications
         
         signal.status = 'STOPPED_OUT'
         signal.result = 'LOSS' if not signal.tp1_hit else 'BREAKEVEN'
@@ -369,30 +392,51 @@ class CryptoSignalBot:
         signal.pnl_percent = pnl
         db.commit()
         
-        # Уведомление
-        msg = TelegramNotifications.format_stop_loss(
-            {
-                'signal_id': signal.signal_id,
-                'ticker': signal.ticker,
-                'direction': signal.direction,
-                'entry_price': entry,
-                'activated_price': entry,
-                'stop_loss_breakeven': signal.stop_loss_breakeven,
-                'tp1_hit': signal.tp1_hit,
-                'tp2_hit': signal.tp2_hit,
-                'tp3_hit': signal.tp3_hit,
-                'tp4_hit': signal.tp4_hit
-            },
-            price
-        )
+        # Уведомление - DISABLED: only new signals are sent
+        # msg = TelegramNotifications.format_stop_loss(
+        #     {
+        #         'signal_id': signal.signal_id,
+        #         'ticker': signal.ticker,
+        #         'direction': signal.direction,
+        #         'entry_price': entry,
+        #         'activated_price': entry,
+        #         'stop_loss_breakeven': signal.stop_loss_breakeven,
+        #         'tp1_hit': signal.tp1_hit,
+        #         'tp2_hit': signal.tp2_hit,
+        #         'tp3_hit': signal.tp3_hit,
+        #         'tp4_hit': signal.tp4_hit
+        #     },
+        #     price
+        # )
+        # 
+        # await self.telegram_bot.bot.send_message(
+        #     chat_id=config.TELEGRAM_CHANNEL_ID,
+        #     text=msg,
+        #     parse_mode='Markdown'
+        # )
         
-        await self.telegram_bot.bot.send_message(
-            chat_id=config.TELEGRAM_CHANNEL_ID,
-            text=msg,
-            parse_mode='Markdown'
-        )
-        
-        log_info(f"🛑 Стоп-лосс {signal.signal_id} @ {price}, PnL: {pnl:.2f}%")
+        log_info(f"🛑 Stop-loss {signal.signal_id} @ {price}, PnL: {pnl:.2f}%")
+    
+    async def _run_telegram_polling(self):
+        """Запуск Telegram polling в фоне"""
+        try:
+            # Запускаем polling через updater
+            # Этот метод работает постоянно, получая обновления от Telegram
+            # Важно: используем правильные параметры для python-telegram-bot 20.x
+            await self.telegram_bot.app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=None,
+                bootstrap_retries=-1  # Бесконечные попытки
+            )
+            # Этот метод работает бесконечно
+            log_info("OK: Polling started successfully")
+        except asyncio.CancelledError:
+            # Это нормально при остановке
+            log_info("Polling cancelled (normal shutdown)")
+        except Exception as e:
+            log_error(str(e), "Telegram polling")
+            import traceback
+            traceback.print_exc()
     
     async def run(self):
         """Основной цикл работы"""
@@ -400,7 +444,7 @@ class CryptoSignalBot:
         
         self.is_running = True
         
-        log_info("🤖 Бот запущен в основном цикле")
+        log_info("🤖 Bot running in main loop")
         
         # Счётчик циклов для разной частоты
         cycle_count = 0
@@ -414,20 +458,31 @@ class CryptoSignalBot:
                 if cycle_count % 60 == 0:
                     await self.analyze_market()
                 
+                # Логирование статистики фильтров КАЖДЫЙ ЧАС (720 циклов * 5 сек = 3600 сек)
+                if cycle_count % 720 == 0 and cycle_count > 0:
+                    log_filter_summary()
+                
                 cycle_count += 1
                 
                 # Пауза между циклами (5 СЕКУНД для мониторинга согласно ТЗ)
                 await asyncio.sleep(5)
                 
             except KeyboardInterrupt:
-                log_info("⏹ Получен сигнал остановки")
+                log_info("⏹ Shutdown signal received")
                 break
             except Exception as e:
                 log_error(str(e), "основного цикла")
-                await self.telegram_bot.send_admin_message(f"❌ Критическая ошибка: {e}")
+                # Уведомление об ошибке - DISABLED: only new signals are sent
+                # await self.telegram_bot.send_admin_message(f"❌ Критическая ошибка: {e}")
                 await asyncio.sleep(60)
         
-        log_info("👋 Бот остановлен")
+        log_info("👋 Bot stopped")
+        
+        # Остановка Telegram бота
+        await self.telegram_bot.app.updater.stop()
+        await self.telegram_bot.app.stop()
+        await self.telegram_bot.app.shutdown()
+        
         self.xt_client.close()
 
 async def main():
@@ -439,5 +494,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n⏹ Бот остановлен пользователем")
+        print("\n⏹ Bot stopped by user")
 

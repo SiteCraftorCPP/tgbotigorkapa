@@ -4,7 +4,7 @@
 
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 from .indicators import TechnicalAnalysis
 
 
@@ -17,7 +17,7 @@ class SignalCancellation:
     
     @staticmethod
     def should_cancel(signal: dict, current_price: float, df: pd.DataFrame, 
-                     created_at: datetime) -> tuple[bool, Optional[str]]:
+                     created_at: datetime) -> Tuple[bool, Optional[str]]:
         """
         Проверка, нужно ли отменить сигнал
         Возвращает (нужно_отменить, причина)

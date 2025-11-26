@@ -11,14 +11,14 @@ class ConservativeFilters:
     """Фильтры для отсева некачественных сигналов"""
     
     # Константы
-    TOP_COINS_LIMIT = 100
-    MIN_VOLUME_24H = 5_000_000  # $5M минимум
+    TOP_COINS_LIMIT = 200
+    MIN_VOLUME_24H = 3_000_000  # $3M минимум
     MAX_SPREAD_PERCENT = 0.3  # 0.3% максимум
     MIN_ATR_RATIO = 1.5  # Минимальная дистанция до ближайшего уровня в ATR
     MAX_ATR_RATIO = 2.5  # Максимальный размер стопа в ATR
     
-    # Ограничение времён суток (UTC часы, когда НЕ торговать)
-    FORBIDDEN_HOURS = [0, 1, 2, 3, 4, 5]  # Ночные часы низкой ликвидности
+    # Ограничение времён суток - ОТКЛЮЧЕНО (торгуем всегда)
+    # FORBIDDEN_HOURS = [0, 1, 2, 3, 4, 5]  # Ночные часы низкой ликвидности
     
     # Минимальная корреляция с BTC/ETH для альткоинов
     MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
@@ -108,7 +108,8 @@ class ConservativeFilters:
                     touches += 1
         
         # Минимум 2 касания для подтверждения уровня
-        return touches >= 2
+        min_touches = 2
+        return touches >= min_touches
     
     @staticmethod
     def check_distance_to_opposite_level(df: pd.DataFrame, entry: float, 
@@ -147,10 +148,9 @@ class ConservativeFilters:
     
     @staticmethod
     def check_time_of_day() -> bool:
-        """Проверка времени суток (не торгуем ночью UTC)"""
-        from datetime import datetime
-        current_hour = datetime.utcnow().hour
-        return current_hour not in ConservativeFilters.FORBIDDEN_HOURS
+        """Проверка времени суток - ОТКЛЮЧЕНО (торгуем всегда)"""
+        # Ограничение по времени суток убрано - торгуем всегда
+        return True
     
     @staticmethod
     async def check_btc_eth_correlation(ticker: str, direction: str, client: XTClient) -> bool:
@@ -234,10 +234,10 @@ class ConservativeFilters:
             result['reasons'].append("Близко противонаправленный уровень")
             return result
         
-        # 7. Ограничение времён суток (согласно п.6 инструкции)
-        if not ConservativeFilters.check_time_of_day():
-            result['reasons'].append("Неблагоприятное время суток (UTC)")
-            return result
+        # 7. Ограничение времён суток - ОТКЛЮЧЕНО (торгуем всегда)
+        # if not ConservativeFilters.check_time_of_day():
+        #     result['reasons'].append("Неблагоприятное время суток (UTC)")
+        #     return result
         
         # 8. BTC/ETH корреляция (согласно п.4 инструкции)
         if not await ConservativeFilters.check_btc_eth_correlation(ticker, direction, client):

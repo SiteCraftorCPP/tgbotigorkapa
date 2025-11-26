@@ -11,30 +11,30 @@ class TelegramNotifications:
     
     @staticmethod
     def format_entry_activated(signal: dict, activation_price: float) -> str:
-        """Уведомление об активации входа"""
+        """Entry activation notification (English for channel)"""
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
         
         return f"""
-{emoji} *ВХОД АКТИВИРОВАН*
+{emoji} *ENTRY ACTIVATED*
 
 🆔 `{signal['signal_id']}`
 📊 *{signal['ticker']}* | {signal['direction']}
 
-💰 Цена входа: `{activation_price}`
-🛑 Стоп-лосс: `{signal['stop_loss']}`
+💰 Entry price: `{activation_price}`
+🛑 Stop-loss: `{signal['stop_loss']}`
 
-Позиция открыта! Ожидаем TP1...
+Position opened! Awaiting TP1...
 """
     
     @staticmethod
     def format_tp_hit(signal: dict, tp_number: int, tp_price: float, 
                      remaining_percent: int) -> str:
-        """Уведомление о достижении TP"""
+        """TP hit notification (English for channel)"""
         
         emoji_map = {1: "🎯", 2: "🎯🎯", 3: "🎯🎯🎯", 4: "🎯🎯🎯🎯"}
         emoji = emoji_map.get(tp_number, "🎯")
         
-        # Расчёт прибыли
+        # Profit calculation
         entry = signal['entry_price']
         if signal['direction'] == 'LONG':
             profit = ((tp_price - entry) / entry) * 100
@@ -43,24 +43,24 @@ class TelegramNotifications:
         
         breakeven_note = ""
         if tp_number == 1:
-            breakeven_note = "\n\n✅ *СТОП ПЕРЕНЕСЁН В БЕЗУБЫТОК!*"
+            breakeven_note = "\n\n✅ *STOP MOVED TO BREAKEVEN!*"
         
         message = f"""
-{emoji} *TP{tp_number} ДОСТИГНУТ!*
+{emoji} *TP{tp_number} REACHED!*
 
 🆔 `{signal['signal_id']}`
 📊 *{signal['ticker']}* | {signal['direction']}
 
 💰 TP{tp_number}: `{tp_price}` 
-📈 Профит: *+{profit:.2f}%*
-💵 Закрыто: *25%* позиции
+📈 Profit: *+{profit:.2f}%*
+💵 Closed: *25%* position
 
-🔄 Осталось: *{remaining_percent}%* позиции
+🔄 Remaining: *{remaining_percent}%* position
 """
         
         if tp_number < 4:
             next_tp = signal[f'take_profit_{tp_number + 1}']
-            message += f"⏭ Следующий: TP{tp_number + 1} = `{next_tp}`"
+            message += f"⏭ Next: TP{tp_number + 1} = `{next_tp}`"
         
         message += breakeven_note
         
@@ -68,28 +68,28 @@ class TelegramNotifications:
     
     @staticmethod
     def format_stop_loss(signal: dict, close_price: float) -> str:
-        """Уведомление о срабатывании стоп-лосса"""
+        """Stop-loss notification (English for channel)"""
         
-        # Расчёт убытка
+        # Loss calculation
         entry = signal.get('activated_price', signal['entry_price'])
         if signal['direction'] == 'LONG':
             loss = ((close_price - entry) / entry) * 100
         else:
             loss = ((entry - close_price) / entry) * 100
         
-        # Проверка, был ли безубыток
+        # Check if breakeven was set
         was_breakeven = signal.get('stop_loss_breakeven') is not None
         
         if was_breakeven:
             emoji = "🔄"
-            title = "ЗАКРЫТО ПО БЕЗУБЫТКУ"
-            loss_text = f"Результат: *0%* (безубыток)"
+            title = "CLOSED AT BREAKEVEN"
+            loss_text = f"Result: *0%* (breakeven)"
         else:
             emoji = "🛑"
-            title = "СТОП-ЛОСС"
-            loss_text = f"Убыток: *{loss:.2f}%*"
+            title = "STOP-LOSS"
+            loss_text = f"Loss: *{loss:.2f}%*"
         
-        # Какие TP были достигнуты
+        # Which TPs were reached
         tps_hit = []
         for i in range(1, 5):
             if signal.get(f'tp{i}_hit'):
@@ -97,7 +97,7 @@ class TelegramNotifications:
         
         tps_text = ""
         if tps_hit:
-            tps_text = f"\n✅ Достигнуты: {', '.join(tps_hit)}"
+            tps_text = f"\n✅ Reached: {', '.join(tps_hit)}"
         
         return f"""
 {emoji} *{title}*
@@ -105,15 +105,15 @@ class TelegramNotifications:
 🆔 `{signal['signal_id']}`
 📊 *{signal['ticker']}* | {signal['direction']}
 
-💰 Цена закрытия: `{close_price}`
+💰 Close price: `{close_price}`
 📉 {loss_text}{tps_text}
 
-Сделка закрыта.
+Trade closed.
 """
     
     @staticmethod
     def format_full_tp(signal: dict) -> str:
-        """Уведомление о полном закрытии по TP4"""
+        """Full TP4 closure notification (English for channel)"""
         
         entry = signal.get('activated_price', signal['entry_price'])
         tp4 = signal['take_profit_4']
@@ -124,40 +124,40 @@ class TelegramNotifications:
             total_profit = ((entry - tp4) / entry) * 100
         
         return f"""
-🎉 *ВСЕ TP ДОСТИГНУТЫ!*
+🎉 *ALL TPs REACHED!*
 
 🆔 `{signal['signal_id']}`
 📊 *{signal['ticker']}* | {signal['direction']}
 
-✅ TP1, TP2, TP3, TP4 - все закрыты!
+✅ TP1, TP2, TP3, TP4 - all closed!
 
-💰 Максимальный профит: *+{total_profit:.2f}%*
-📈 Средний профит: *+{total_profit * 0.625:.2f}%*
+💰 Max profit: *+{total_profit:.2f}%*
+📈 Avg profit: *+{total_profit * 0.625:.2f}%*
 
-🎯 Идеальное выполнение сигнала!
+🎯 Perfect signal execution!
 """
     
     @staticmethod
     def format_cancelled(signal: dict, reason: str) -> str:
-        """Уведомление об отмене сигнала"""
+        """Signal cancellation notification (English for channel)"""
         
         return f"""
-⚠️ *СИГНАЛ ОТМЕНЁН*
+⚠️ *SIGNAL CANCELLED*
 
 🆔 `{signal['signal_id']}`
 📊 *{signal['ticker']}* | {signal['direction']}
 
-📋 Причина: _{reason}_
+📋 Reason: _{reason}_
 
-Сигнал удалён из очереди.
+Signal removed from queue.
 """
     
     @staticmethod
     def format_warning(signal: dict, warning_text: str) -> str:
-        """Предупреждение по активному сигналу"""
+        """Warning notification (English for channel)"""
         
         return f"""
-⚠️ *ПРЕДУПРЕЖДЕНИЕ*
+⚠️ *WARNING*
 
 🆔 `{signal['signal_id']}`
 📊 *{signal['ticker']}*

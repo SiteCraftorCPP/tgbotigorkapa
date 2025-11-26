@@ -61,11 +61,6 @@ class ConfigManager:
         return ConfigManager.get('bot_enabled', 'true').lower() == 'true'
     
     @staticmethod
-    def get_min_ai_score() -> int:
-        """Минимальный AI Score"""
-        return int(ConfigManager.get('min_ai_score', '70'))
-    
-    @staticmethod
     def get_risk_percent() -> float:
         """Процент риска"""
         return float(ConfigManager.get('risk_percent', '1.0'))

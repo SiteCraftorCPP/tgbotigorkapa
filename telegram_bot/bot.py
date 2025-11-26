@@ -15,16 +15,26 @@ def admin_only(func):
     """Декоратор для проверки прав админа"""
     @wraps(func)
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = str(update.effective_user.id)
-        
-        if not AdminManager.is_admin(user_id):
-            await update.message.reply_text(
-                "❌ У вас нет прав для выполнения этой команды.\n"
-                "Только администраторы могут использовать эту команду."
-            )
-            return
-        
-        return await func(self, update, context)
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            is_admin = AdminManager.is_admin(user_id)
+            print(f"[DEBUG] Command {func.__name__} called by user {user_id}, is_admin: {is_admin}")
+            
+            if not is_admin:
+                await update.message.reply_text(t('no_permission', lang))
+                return
+            
+            return await func(self, update, context)
+        except Exception as e:
+            print(f"[ERROR] Error in admin_only decorator: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await update.message.reply_text(f"Error: {str(e)}")
+            except:
+                pass
     return wrapper
 
 
@@ -51,52 +61,85 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("config", self.cmd_config))
         
         # Админ команды - настройка параметров
-        self.app.add_handler(CommandHandler("set_pairs", self.cmd_set_pairs))
-        self.app.add_handler(CommandHandler("set_timeframes", self.cmd_set_timeframes))
-        self.app.add_handler(CommandHandler("set_ai_score", self.cmd_set_ai_score))
-        self.app.add_handler(CommandHandler("set_risk", self.cmd_set_risk))
-        self.app.add_handler(CommandHandler("set_leverage", self.cmd_set_leverage))
-        
-        # Админ команды - управление админами
-        self.app.add_handler(CommandHandler("add_admin", self.cmd_add_admin))
-        self.app.add_handler(CommandHandler("remove_admin", self.cmd_remove_admin))
-        self.app.add_handler(CommandHandler("list_admins", self.cmd_list_admins))
+        # ВАЖНО: Telegram не поддерживает подчеркивания в командах, используем дефисы
+        self.app.add_handler(CommandHandler("setpairs", self.cmd_set_pairs))
+        self.app.add_handler(CommandHandler("setp", self.cmd_set_pairs))  # Короткий вариант
+        self.app.add_handler(CommandHandler("settimeframes", self.cmd_set_timeframes))
+        self.app.add_handler(CommandHandler("settf", self.cmd_set_timeframes))  # Короткий вариант
         
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         
         # Callback handlers для кнопок
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
+        
+        # Обработчик всех неизвестных команд для отладки
+        async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            command = update.message.text.split()[0] if update.message.text else "unknown"
+            print(f"[DEBUG] Unknown command received: {command}")
+            await update.message.reply_text(f"Unknown command: {command}")
+        
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
-        """Отправка сигнала в канал"""
+        """Отправка сигнала в канал (всегда на английском)"""
         try:
-            message = self._format_signal_message(signal)
+            message = self._format_signal_message(signal, lang='en')
+            
+            # Кнопка с реферальной ссылкой XT.com
+            keyboard = [
+                [InlineKeyboardButton(
+                    "💸 Official Partner XT CASHBACK 40%",
+                    url="https://www.xt.com/en/accounts/register?ref=KINGELONMARS"
+                )]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             await self.bot.send_message(
                 chat_id=config.TELEGRAM_CHANNEL_ID,
                 text=message,
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
             )
             
             return True
         except Exception as e:
-            await self.send_admin_message(f"❌ Ошибка отправки сигнала: {e}")
+            error_msg = f"Error sending signal: {e}"
+            try:
+                await self.send_admin_message(error_msg)
+            except:
+                print(f"[ERROR] {error_msg}")
             return False
     
     async def send_admin_message(self, message: str):
-        """Отправка сообщения в админ-канал"""
+        """Отправка сообщения в админ-канал (или в основной, если админ-канал не указан)"""
         try:
+            chat_id = config.TELEGRAM_ADMIN_CHANNEL_ID or config.TELEGRAM_CHANNEL_ID
             await self.bot.send_message(
-                chat_id=config.TELEGRAM_ADMIN_CHANNEL_ID,
+                chat_id=chat_id,
                 text=message,
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
-            print(f"❌ Ошибка отправки в админ-канал: {e}")
+            print(f"[ERROR] Failed to send admin message: {e}")
     
-    def _format_signal_message(self, signal: dict) -> str:
-        """Форматирование ультраконсервативного сигнала"""
+    def _format_price(self, price: float) -> str:
+        """Умное форматирование цены в зависимости от её величины"""
+        if price >= 1000:
+            # Большие цены (BTC, ETH и т.д.) - 2 знака после запятой
+            return f"{price:.2f}"
+        elif price >= 1:
+            # Средние цены (1-1000) - 4 знака после запятой
+            return f"{price:.4f}"
+        elif price >= 0.01:
+            # Малые цены (0.01-1) - 6 знаков после запятой
+            return f"{price:.6f}"
+        else:
+            # Очень малые цены (<0.01) - 8 знаков после запятой
+            return f"{price:.8f}".rstrip('0').rstrip('.')
+    
+    def _format_signal_message(self, signal: dict, lang: str = 'en') -> str:
+        """Форматирование упрощенного сигнала"""
         
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
         
@@ -121,52 +164,42 @@ class TelegramBot:
             profit_tp4 = ((entry - tp4) / entry) * 100
             risk_percent = ((stop - entry) / entry) * 100
         
-        # Risk/Reward ratio
-        rr = profit_tp1 / risk_percent if risk_percent > 0 else 0
+        # Форматирование цен с учётом их величины
+        entry_str = self._format_price(entry)
+        stop_str = self._format_price(stop)
+        tp1_str = self._format_price(tp1)
+        tp2_str = self._format_price(tp2)
+        tp3_str = self._format_price(tp3)
+        tp4_str = self._format_price(tp4)
         
+        # Сигналы всегда на английском для канала
         message = f"""
-{emoji} *УЛЬТРАКОНСЕРВАТИВНЫЙ СИГНАЛ*
-
 📊 *{signal['ticker']}* | {signal['direction']}
-🕐 {signal['timeframe']} → {signal.get('timeframe_higher', 'H4')}
 
-💰 *Вход:* `{entry}`
-🛑 *Стоп:* `{stop}` (-{risk_percent:.2f}%)
+💰 Entry: {entry_str}
+🛑 Stop: {stop_str} (-{risk_percent:.2f}%)
 
-🎯 *Take Profit (4 уровня):*
-├ TP1: `{tp1}` (+{profit_tp1:.1f}%) [25%]
-├ TP2: `{tp2}` (+{profit_tp2:.1f}%) [25%]
-├ TP3: `{tp3}` (+{profit_tp3:.1f}%) [25%]
-└ TP4: `{tp4}` (+{profit_tp4:.1f}%) [25%]
+🎯 Take Profit
+├ TP1: {tp1_str} (+{profit_tp1:.1f}%)
+├ TP2: {tp2_str} (+{profit_tp2:.1f}%)
+├ TP3: {tp3_str} (+{profit_tp3:.1f}%)
+└ TP4: {tp4_str} (+{profit_tp4:.1f}%)
 
-📈 *Параметры:*
-• Риск: *{signal['risk_percent']}%* (макс 1%)
-• Плечо: *x{signal['leverage']}*
-• RR: *{rr:.1f}:1*
-• AI Score: *{signal['ai_score']}/100*
-
-📊 *Фильтры:*
-• Объём 24ч: ${signal.get('volume_24h', 0)/1_000_000:.1f}M
-• Спред: {signal.get('spread_percent', 0):.2f}%
-• ATR: {signal.get('atr_value', 0):.2f}
-
-⚠️ *После TP1 - перенос SL в безубыток!*
-
-🆔 `{signal['signal_id']}`
+⚠️ After TP1 - move SL to breakeven!
 """
         return message.strip()
     
     async def update_signal_result(self, signal_id: str, result: str, pnl_percent: float):
-        """Обновление результата сигнала в канале"""
+        """Обновление результата сигнала в канале (всегда на английском)"""
         try:
             emoji = "✅" if result == "WIN" else "❌"
             pnl_emoji = "+" if pnl_percent > 0 else ""
             
             message = f"""
-{emoji} *Сигнал закрыт*
+{emoji} *Signal Closed*
 
 🆔 ID: `{signal_id}`
-📊 Результат: *{result}*
+📊 Result: *{result}*
 💵 PnL: *{pnl_emoji}{pnl_percent:.2f}%*
 """
             
@@ -185,8 +218,46 @@ class TelegramBot:
         user_id = str(update.effective_user.id)
         lang = get_user_lang(user_id)
         
-        message = t('cmd_start', lang)
-        await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+        # Если язык не выбран (по умолчанию 'en' но пользователь ещё не выбирал)
+        # Проверяем, есть ли запись в БД
+        from database.user_preferences import UserPreference
+        db = get_db()
+        try:
+            pref = db.query(UserPreference).filter(
+                UserPreference.telegram_id == str(user_id)
+            ).first()
+            
+            # Если пользователя нет в БД, показываем выбор языка
+            if not pref:
+                keyboard = [
+                    [
+                        InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+                        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    "👋 Welcome! Please select your language / Добро пожаловать! Выберите язык:",
+                    reply_markup=reply_markup
+                )
+                return
+        finally:
+            db.close()
+        
+        # Если язык уже выбран, показываем меню в зависимости от прав
+        # Проверяем, является ли пользователь админом
+        is_admin = AdminManager.is_admin(user_id)
+        
+        if is_admin:
+            message = t('cmd_start_admin', lang)
+        else:
+            message = t('cmd_start', lang)
+        
+        try:
+            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            await update.message.reply_text(message.strip())
     
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /help"""
@@ -197,6 +268,9 @@ class TelegramBot:
     
     async def cmd_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /language - выбор языка"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         keyboard = [
             [
                 InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
@@ -206,7 +280,7 @@ class TelegramBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "Select language / Выберите язык:",
+            t('language_select', lang),
             reply_markup=reply_markup
         )
     
@@ -222,11 +296,24 @@ class TelegramBot:
             lang = query.data.split("_")[1]
             UserPreferenceManager.set_language(user_id, lang)
             
-            message = t('language_changed', lang)
-            await query.edit_message_text(message)
+            # После выбора языка показываем меню в зависимости от прав
+            is_admin = AdminManager.is_admin(user_id)
+            if is_admin:
+                menu_text = t('cmd_start_admin', lang)
+            else:
+                menu_text = t('cmd_start', lang)
+            
+            message = t('language_changed', lang) + "\n\n" + menu_text
+            try:
+                await query.edit_message_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            except:
+                await query.edit_message_text(message.strip())
     
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - общая статистика"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         db = get_db()
         
         try:
@@ -237,7 +324,7 @@ class TelegramBot:
             closed = db.query(Signal).filter(Signal.status.in_(['TP1', 'TP2', 'SL'])).all()
             
             if not closed:
-                await update.message.reply_text("📊 Пока нет закрытых сигналов")
+                await update.message.reply_text(t('no_closed_signals', lang))
                 return
             
             wins = len([s for s in closed if s.result == 'WIN'])
@@ -248,23 +335,29 @@ class TelegramBot:
             avg_rr = sum([s.risk_reward for s in closed if s.risk_reward]) / len(closed) if closed else 0
             
             message = f"""
-📊 *Общая статистика*
+📊 *{t('overall_stats', lang)}*
 
-📈 Всего сигналов: {total_signals}
-✅ Прибыльных: {wins}
-❌ Убыточных: {losses}
+{t('stats_total', lang, count=total_signals)}
+{t('stats_profitable', lang, count=wins)}
+{t('stats_unprofitable', lang, count=losses)}
 
-💹 Winrate: *{winrate:.1f}%*
-💰 Общий PnL: *{total_pnl:+.2f}%*
-📊 Средний RR: *{avg_rr:.2f}*
+{t('stats_winrate', lang, winrate=winrate)}
+{t('stats_pnl', lang, pnl=total_pnl)}
+{t('stats_avg_rr', lang, rr=avg_rr)}
 """
-            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            try:
+                await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            except:
+                await update.message.reply_text(message.strip())
             
         finally:
             db.close()
     
     async def cmd_today(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Статистика за сегодня"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         db = get_db()
         
         try:
@@ -275,7 +368,7 @@ class TelegramBot:
             ).all()
             
             if not signals:
-                await update.message.reply_text("📊 Сегодня сигналов пока нет")
+                await update.message.reply_text(t('no_signals_today', lang))
                 return
             
             closed = [s for s in signals if s.status in ['TP1', 'TP2', 'SL']]
@@ -285,20 +378,26 @@ class TelegramBot:
             losses = len([s for s in closed if s.result == 'LOSS'])
             
             message = f"""
-📊 *Статистика за сегодня*
+📊 *{t('today_stats', lang)}*
 
-📈 Всего сигналов: {len(signals)}
-🟢 Активных: {len(active)}
-✅ Прибыльных: {wins}
-❌ Убыточных: {losses}
+{t('today_total', lang, count=len(signals))}
+{t('today_active', lang, count=len(active))}
+{t('stats_profitable', lang, count=wins)}
+{t('stats_unprofitable', lang, count=losses)}
 """
-            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            try:
+                await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            except:
+                await update.message.reply_text(message.strip())
             
         finally:
             db.close()
     
     async def cmd_week(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Статистика за неделю"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         db = get_db()
         
         try:
@@ -309,7 +408,7 @@ class TelegramBot:
             ).all()
             
             if not signals:
-                await update.message.reply_text("📊 За неделю сигналов нет")
+                await update.message.reply_text(t('no_signals_week', lang))
                 return
             
             closed = [s for s in signals if s.status in ['TP1', 'TP2', 'SL']]
@@ -321,15 +420,18 @@ class TelegramBot:
             total_pnl = sum([s.pnl_percent for s in closed if s.pnl_percent])
             
             message = f"""
-📊 *Статистика за неделю*
+📊 *{t('week_stats', lang)}*
 
-📈 Всего сигналов: {len(signals)}
-✅ Прибыльных: {wins}
-❌ Убыточных: {losses}
-💹 Winrate: *{winrate:.1f}%*
-💰 PnL: *{total_pnl:+.2f}%*
+{t('week_total', lang, count=len(signals))}
+{t('stats_profitable', lang, count=wins)}
+{t('stats_unprofitable', lang, count=losses)}
+{t('stats_winrate', lang, winrate=winrate)}
+{t('week_pnl', lang, pnl=total_pnl)}
 """
-            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            try:
+                await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            except:
+                await update.message.reply_text(message.strip())
             
         finally:
             db.close()
@@ -337,221 +439,129 @@ class TelegramBot:
     @admin_only
     async def cmd_config(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Текущая конфигурация"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         pairs = ConfigManager.get_trading_pairs()
         timeframes = ConfigManager.get_timeframes()
         enabled = ConfigManager.is_bot_enabled()
-        ai_score = ConfigManager.get_min_ai_score()
-        risk = ConfigManager.get_risk_percent()
-        leverage = ConfigManager.get_leverage()
         
-        status = "✅ Включен" if enabled else "⏸ Выключен"
+        status = t('enabled', lang) if enabled else t('disabled', lang)
         
         message = f"""
-⚙️ *Текущие настройки бота*
+{t('config_title', lang)}
 
-🤖 Статус: {status}
+{t('config_status', lang, status=status)}
 
-📊 *Торговля:*
-• Пары: {', '.join(pairs)}
-• Таймфреймы: {', '.join(timeframes)}
+{t('config_trading', lang)}
+{t('config_pairs', lang, pairs=', '.join(pairs))}
+{t('config_timeframes', lang, timeframes=', '.join(timeframes))}
 
-🎯 *Параметры:*
-• Мин. AI Score: {ai_score}/100
-• Риск: {risk}%
-• Плечо: x{leverage}
-
-Для изменения используйте команды /set_*
+{t('use_commands', lang)}
 """
-        await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+        try:
+            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            # Если ошибка с Markdown, отправляем без форматирования
+            message_plain = f"""
+{t('current_settings', lang)}
+
+{t('status', lang)}: {status}
+
+{t('trading', lang)}:
+{t('pairs', lang)}: {', '.join(pairs)}
+{t('timeframes', lang)}: {', '.join(timeframes)}
+
+{t('use_commands', lang)}
+"""
+            await update.message.reply_text(message_plain.strip())
     
     @admin_only
     async def cmd_enable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Включение бота"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         ConfigManager.enable_bot()
-        await update.message.reply_text("✅ Бот включен")
-        await self.send_admin_message("✅ Бот включен")
+        await update.message.reply_text(t('bot_enabled', lang))
+        await self.send_admin_message(t('bot_enabled', lang))
     
     @admin_only
     async def cmd_disable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Выключение бота"""
+        user_id = str(update.effective_user.id)
+        lang = get_user_lang(user_id)
+        
         ConfigManager.disable_bot()
-        await update.message.reply_text("⏸ Бот выключен")
-        await self.send_admin_message("⏸ Бот выключен")
+        await update.message.reply_text(t('bot_disabled', lang))
+        await self.send_admin_message(t('bot_disabled', lang))
     
     @admin_only
     async def cmd_set_pairs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Установка торгуемых пар"""
-        if not context.args:
-            current = ConfigManager.get_trading_pairs()
-            await update.message.reply_text(
-                f"📊 Текущие пары: {', '.join(current)}\n\n"
-                f"Использование:\n"
-                f"`/set_pairs BTC/USDT ETH/USDT SOL/USDT`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        pairs = [p.strip() for p in context.args]
-        ConfigManager.set_trading_pairs(pairs)
-        
-        await update.message.reply_text(
-            f"✅ Торгуемые пары обновлены:\n{', '.join(pairs)}"
-        )
-        await self.send_admin_message(
-            f"⚙️ Пары изменены: {', '.join(pairs)}"
-        )
+        print(f"[DEBUG] cmd_set_pairs FUNCTION CALLED!")
+        try:
+            print(f"[DEBUG] cmd_set_pairs called, args: {context.args}")
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            print(f"[DEBUG] User ID: {user_id}, Lang: {lang}")
+            
+            if not context.args:
+                current = ConfigManager.get_trading_pairs()
+                message = f"{t('current_pairs', lang, pairs=', '.join(current))}\n\n{t('pairs_help', lang)}"
+                try:
+                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                except:
+                    await update.message.reply_text(message)
+                return
+            
+            pairs = [p.strip() for p in context.args]
+            print(f"[DEBUG] Setting pairs: {pairs}")
+            success = ConfigManager.set_trading_pairs(pairs)
+            print(f"[DEBUG] Save result: {success}")
+            
+            if success:
+                await update.message.reply_text(t('pairs_updated', lang, pairs=', '.join(pairs)))
+                await self.send_admin_message(t('pairs_changed', lang, pairs=', '.join(pairs)))
+            else:
+                await update.message.reply_text(t('error', lang) + ": Failed to save pairs")
+        except Exception as e:
+            print(f"[ERROR] Exception in cmd_set_pairs: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await update.message.reply_text(f"Error: {str(e)}")
+            except:
+                pass
     
     @admin_only
     async def cmd_set_timeframes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Установка таймфреймов"""
-        if not context.args:
-            current = ConfigManager.get_timeframes()
-            await update.message.reply_text(
-                f"⏰ Текущие таймфреймы: {', '.join(current)}\n\n"
-                f"Использование:\n"
-                f"`/set_timeframes 5m 15m 1h 4h`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        timeframes = [t.strip() for t in context.args]
-        ConfigManager.set_timeframes(timeframes)
-        
-        await update.message.reply_text(
-            f"✅ Таймфреймы обновлены:\n{', '.join(timeframes)}"
-        )
-        await self.send_admin_message(
-            f"⚙️ Таймфреймы изменены: {', '.join(timeframes)}"
-        )
-    
-    @admin_only
-    async def cmd_set_ai_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Установка минимального AI Score"""
-        if not context.args:
-            current = ConfigManager.get_min_ai_score()
-            await update.message.reply_text(
-                f"🎯 Текущий мин. AI Score: {current}/100\n\n"
-                f"Использование:\n"
-                f"`/set_ai_score 75`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
         try:
-            score = int(context.args[0])
-            if not 0 <= score <= 100:
-                raise ValueError
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
             
-            ConfigManager.set('min_ai_score', str(score))
-            await update.message.reply_text(f"✅ Мин. AI Score установлен: {score}/100")
-            await self.send_admin_message(f"⚙️ Мин. AI Score изменён: {score}/100")
-        except:
-            await update.message.reply_text("❌ Ошибка: укажите число от 0 до 100")
-    
-    @admin_only
-    async def cmd_set_risk(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Установка процента риска"""
-        if not context.args:
-            current = ConfigManager.get_risk_percent()
-            await update.message.reply_text(
-                f"⚠️ Текущий риск: {current}%\n\n"
-                f"Использование:\n"
-                f"`/set_risk 1.5`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        try:
-            risk = float(context.args[0])
-            if not 0 < risk <= 10:
-                raise ValueError
+            if not context.args:
+                current = ConfigManager.get_timeframes()
+                message = f"{t('current_timeframes', lang, timeframes=', '.join(current))}\n\n{t('timeframes_help', lang)}"
+                try:
+                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                except:
+                    await update.message.reply_text(message)
+                return
             
-            ConfigManager.set('risk_percent', str(risk))
-            await update.message.reply_text(f"✅ Риск установлен: {risk}%")
-            await self.send_admin_message(f"⚙️ Риск изменён: {risk}%")
-        except:
-            await update.message.reply_text("❌ Ошибка: укажите число от 0 до 10")
-    
-    @admin_only
-    async def cmd_set_leverage(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Установка плеча"""
-        if not context.args:
-            current = ConfigManager.get_leverage()
-            await update.message.reply_text(
-                f"📈 Текущее плечо: x{current}\n\n"
-                f"Использование:\n"
-                f"`/set_leverage 20`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        try:
-            leverage = int(context.args[0])
-            if not 1 <= leverage <= 125:
-                raise ValueError
+            timeframes = [tf.strip() for tf in context.args]
+            success = ConfigManager.set_timeframes(timeframes)
             
-            ConfigManager.set('default_leverage', str(leverage))
-            await update.message.reply_text(f"✅ Плечо установлено: x{leverage}")
-            await self.send_admin_message(f"⚙️ Плечо изменено: x{leverage}")
-        except:
-            await update.message.reply_text("❌ Ошибка: укажите число от 1 до 125")
-    
-    @admin_only
-    async def cmd_add_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Добавление админа"""
-        if not context.args:
-            await update.message.reply_text(
-                "Использование:\n"
-                "`/add_admin USER_ID`\n\n"
-                "Чтобы узнать ID, попросите пользователя написать @userinfobot",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        telegram_id = context.args[0]
-        AdminManager.add_admin(telegram_id)
-        
-        await update.message.reply_text(f"✅ Админ {telegram_id} добавлен")
-        await self.send_admin_message(f"👥 Новый админ добавлен: {telegram_id}")
-    
-    @admin_only
-    async def cmd_remove_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Удаление админа"""
-        if not context.args:
-            await update.message.reply_text(
-                "Использование:\n"
-                "`/remove_admin USER_ID`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        telegram_id = context.args[0]
-        
-        # Проверка, что не удаляем последнего админа
-        if AdminManager.count_admins() <= 1:
-            await update.message.reply_text("❌ Нельзя удалить последнего админа!")
-            return
-        
-        AdminManager.remove_admin(telegram_id)
-        await update.message.reply_text(f"✅ Админ {telegram_id} удалён")
-        await self.send_admin_message(f"👥 Админ удалён: {telegram_id}")
-    
-    @admin_only
-    async def cmd_list_admins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Список админов"""
-        admins = AdminManager.get_all_admins()
-        
-        if not admins:
-            await update.message.reply_text("📝 Нет активных админов")
-            return
-        
-        message = "👥 *Список администраторов:*\n\n"
-        for admin in admins:
-            username = f"@{admin.username}" if admin.username else "нет username"
-            name = admin.first_name or "нет имени"
-            message += f"• {name} ({username})\n  ID: `{admin.telegram_id}`\n\n"
-        
-        await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            if success:
+                await update.message.reply_text(t('timeframes_updated', lang, timeframes=', '.join(timeframes)))
+                await self.send_admin_message(t('timeframes_changed', lang, timeframes=', '.join(timeframes)))
+            else:
+                await update.message.reply_text(t('error', lang) + ": Failed to save timeframes")
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def run(self):
         """Запуск бота"""

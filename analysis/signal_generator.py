@@ -3,6 +3,7 @@ from typing import Optional, Dict
 from .indicators import TechnicalAnalysis
 from .multi_timeframe import MultiTimeframeAnalysis
 from .conservative_filters import ConservativeFilters
+from .market_filters import MarketFilters  # НОВЫЕ рыночные фильтры
 from database.config_manager import ConfigManager
 from database.risk_manager import RiskManager
 from exchange.xt_client import XTClient
@@ -24,27 +25,37 @@ class SignalGenerator:
         
     async def generate_signal(self) -> Optional[Dict]:
         """Генерация ультраконсервативного сигнала"""
+        from utils.logger import log_filter_block, log_filter_pass
         
         # ФИЛЬТР РИСК-МЕНЕДЖМЕНТА
         can_open, reason = RiskManager.can_open_new_signal(self.symbol)
         if not can_open:
+            log_filter_block(self.symbol, self.timeframe, "RiskManager", reason)
             return None
         
         # Расчёт индикаторов
         self.ta.calculate_all_indicators()
         
         if self.ta.df.empty or len(self.ta.df) < 200:
+            log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 200")
             return None
         
         # МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ
         mtf = MultiTimeframeAnalysis.check_trend_alignment(self.df_higher, self.df)
         if not mtf['aligned']:
-            return None  # Тренд не совпадает на двух ТФ
+            log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", f"Trend not aligned: higher={mtf.get('higher_trend')}, lower={mtf.get('lower_signal')}")
+            return None
         
         direction = mtf['higher_trend']
         
         # ПРОВЕРКА PULLBACK (коррекция к уровню)
         if not MultiTimeframeAnalysis.check_pullback_opportunity(self.df, direction):
+            log_filter_block(self.symbol, self.timeframe, "Pullback", f"No pullback opportunity for {direction}")
+            return None
+        
+        # ПРОВЕРКА MARKET STRUCTURE (HH/HL для LONG, LH/LL для SHORT)
+        if not self._check_market_structure(direction):
+            log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Invalid structure for {direction}")
             return None
         
         # Получение всех сигналов
@@ -67,9 +78,23 @@ class SignalGenerator:
         )
         
         if not signal_params:
+            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction}")
             return None
         
-        # УЛЬТРАКОНСЕРВАТИВНЫЕ ФИЛЬТРЫ
+        # === MARKET FILTERS (STRICT) ===
+        market_filters_result = await MarketFilters.check_all_filters(
+            self.symbol,
+            self.timeframe,
+            self.df,
+            self.client,
+            direction  # Pass direction for BTC trend filter
+        )
+        
+        if not market_filters_result['passed']:
+            log_filter_block(self.symbol, self.timeframe, f"MarketFilter:{market_filters_result['reason'].split()[0]}", market_filters_result['reason'])
+            return None
+        
+        # Дополнительные консервативные фильтры
         filters_result = await ConservativeFilters.check_all_filters(
             self.symbol, 
             self.df, 
@@ -81,15 +106,12 @@ class SignalGenerator:
         )
         
         if not filters_result['passed']:
+            reasons = ', '.join(filters_result.get('reasons', ['unknown']))
+            log_filter_block(self.symbol, self.timeframe, "ConservativeFilter", reasons)
             return None
         
-        # Расчёт AI Score ПОСЛЕ прохождения всех фильтров
-        ai_score = self._calculate_ai_score(trend, momentum, volume, volatility)
-        
-        # Повышаем требования к AI Score
-        min_score = ConfigManager.get_min_ai_score()
-        if ai_score < min_score:
-            return None
+        # ВСЕ ФИЛЬТРЫ ПРОЙДЕНЫ
+        log_filter_pass(self.symbol, self.timeframe)
         
         # Формирование сигнала с расширенными данными
         signal = {
@@ -104,13 +126,13 @@ class SignalGenerator:
             'take_profit_2': signal_params['tp2'],
             'take_profit_3': signal_params['tp3'],
             'take_profit_4': signal_params['tp4'],
-            'ai_score': ai_score,
             'risk_percent': RiskManager.MAX_RISK_PER_TRADE,
             'leverage': ConfigManager.get_leverage(),
             'created_at': datetime.utcnow(),
-            'volume_24h': filters_result['volume_24h'],
-            'spread_percent': filters_result['spread'],
+            'volume_24h': market_filters_result['volume_24h'],  # Из рыночных фильтров
+            'spread_percent': market_filters_result['spread'],  # Из рыночных фильтров
             'atr_value': atr,
+            'liquidity_usdt': market_filters_result.get('liquidity'),  # НОВОЕ: ликвидность
             'analysis': {
                 'trend': trend,
                 'momentum': momentum,
@@ -122,22 +144,6 @@ class SignalGenerator:
         }
         
         return signal
-    
-    def _calculate_ai_score(self, trend, momentum, volume, volatility) -> int:
-        """Расчёт AI Score на основе весов"""
-        
-        raw_score = (
-            trend['score'] * config.WEIGHTS['trend'] +
-            momentum['score'] * config.WEIGHTS['momentum'] +
-            volume['score'] * config.WEIGHTS['volume'] +
-            volatility['score'] * config.WEIGHTS['volatility']
-        )
-        
-        # Нормализация к шкале 0-100
-        # raw_score может быть от -100 до +100
-        normalized = ((raw_score + 100) / 200) * 100
-        
-        return int(max(0, min(100, normalized)))
     
     def _calculate_levels(self, direction: str, price: float, atr: float, levels: dict) -> Optional[Dict]:
         """Расчёт уровней входа, стопа и 4 тейк-профитов"""
@@ -197,7 +203,7 @@ class SignalGenerator:
         # Проверка минимального RR
         risk = abs(entry - stop)
         reward = abs(tp1 - entry)
-        if reward / risk < 1.5:  # Минимум 1.5:1 для TP1
+        if reward / risk < 1.4:  # Минимум 1.4:1 для TP1
             return None
         
         return {
@@ -208,4 +214,48 @@ class SignalGenerator:
             'tp3': round(tp3, 2),
             'tp4': round(tp4, 2)
         }
+    
+    def _check_market_structure(self, direction: str) -> bool:
+        """
+        Проверка структуры рынка (HH/HL для LONG, LH/LL для SHORT)
+        
+        LONG: Higher Highs и Higher Lows (восходящий тренд)
+        SHORT: Lower Highs и Lower Lows (нисходящий тренд)
+        """
+        if len(self.df) < 50:
+            return False
+        
+        # Берём последние 30 свечей для анализа
+        recent = self.df.tail(30)
+        
+        # Находим локальные максимумы и минимумы (с окном 5)
+        window = 5
+        highs = []
+        lows = []
+        
+        for i in range(window, len(recent) - window):
+            # Локальный максимум
+            if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
+                highs.append(recent.iloc[i]['high'])
+            
+            # Локальный минимум
+            if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
+                lows.append(recent.iloc[i]['low'])
+        
+        # Нужно минимум 2 точки для анализа
+        if len(highs) < 2 or len(lows) < 2:
+            return True  # Недостаточно данных - пропускаем фильтр
+        
+        # Анализ структуры
+        if direction == 'LONG':
+            # Для LONG: последний high > предыдущего (HH) И последний low > предыдущего (HL)
+            higher_highs = highs[-1] > highs[-2]
+            higher_lows = lows[-1] > lows[-2]
+            return higher_highs or higher_lows  # Хотя бы одно условие
+        
+        else:  # SHORT
+            # Для SHORT: последний high < предыдущего (LH) И последний low < предыдущего (LL)
+            lower_highs = highs[-1] < highs[-2]
+            lower_lows = lows[-1] < lows[-2]
+            return lower_highs or lower_lows  # Хотя бы одно условие
 

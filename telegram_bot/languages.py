@@ -6,14 +6,18 @@ TRANSLATIONS = {
     'en': {
         # Команды
         'cmd_start': """
-🤖 *Ultra-Conservative Crypto Signal Bot*
-
+📊 Available commands:
+/stats - Overall statistics
+/today - Today's statistics
+/week - Weekly statistics
+/language - Change language
+""",
+        'cmd_start_admin': """
 📊 Public commands:
 /stats - Overall statistics
 /today - Today's statistics
 /week - Weekly statistics
 /language - Change language
-/help - Help
 
 ⚙️ Admin commands:
 /config - Current settings
@@ -21,16 +25,8 @@ TRANSLATIONS = {
 /disable - Disable bot
 
 🔧 Settings:
-/set_pairs - Trading pairs
-/set_timeframes - Timeframes
-/set_ai_score - Min AI Score
-/set_risk - Risk percentage
-/set_leverage - Leverage
-
-👥 Admin management:
-/add_admin - Add admin
-/remove_admin - Remove admin
-/list_admins - List admins
+/setpairs - Trading pairs
+/settimeframes - Timeframes
 """,
         'cmd_help': 'See /start for all commands',
         
@@ -42,7 +38,6 @@ TRANSLATIONS = {
         'parameters': 'Parameters',
         'risk': 'Risk',
         'leverage': 'Leverage',
-        'ai_score': 'AI Score',
         'filters': 'Filters',
         'volume_24h': 'Volume 24h',
         'spread': 'Spread',
@@ -106,8 +101,9 @@ TRANSLATIONS = {
         'trading': 'Trading',
         'pairs': 'Pairs',
         'timeframes': 'Timeframes',
-        'min_ai_score': 'Min. AI Score',
-        'use_commands': 'Use /set_* commands to change',
+        'use_commands': """Use commands to change:
+/setpairs - Trading pairs
+/settimeframes - Timeframes""",
         
         'bot_enabled': '✅ Bot enabled',
         'bot_disabled': '⏸ Bot disabled',
@@ -120,19 +116,69 @@ TRANSLATIONS = {
         'no_permission': '❌ You don\'t have permission for this command.\nOnly administrators can use this command.',
         'error': '❌ Error',
         'usage': 'Usage',
+        'error_number': '❌ Error: specify a number from {min} to {max}',
+        'error_invalid': '❌ Error: invalid value',
+        'cannot_remove_last_admin': '❌ Cannot remove the last admin!',
+        
+        # Команды настроек
+        'current_pairs': '📊 Current pairs: {pairs}',
+        'pairs_help': 'To change pairs, send:\n`/setpairs BTC/USDT ETH/USDT SOL/USDT`\n\nExample:\n`/setpairs BTC/USDT ETH/USDT`',
+        'current_timeframes': '⏰ Current timeframes: {timeframes}',
+        'timeframes_help': 'To change timeframes, send:\n`/settimeframes 5m 15m 1h 4h`\n\nExample:\n`/settimeframes 1m 5m 1h`',
+        'pairs_updated': '✅ Trading pairs updated:\n{pairs}',
+        'timeframes_updated': '✅ Timeframes updated:\n{timeframes}',
+        'pairs_changed': '⚙️ Pairs changed: {pairs}',
+        'timeframes_changed': '⚙️ Timeframes changed: {timeframes}',
+        
+        # Админы
+        'add_admin_usage': 'Usage:\n`/addadmin USER_ID`\n\nTo get ID, ask user to write @username_to_id_bot',
+        'remove_admin_usage': 'Usage:\n`/remove_admin USER_ID`',
+        'admin_added': '✅ Admin {id} added',
+        'admin_removed': '✅ Admin {id} removed',
+        'new_admin_added': '👥 New admin added: {id}',
+        'admin_removed_msg': '👥 Admin removed: {id}',
+        'no_admins': '📝 No active admins',
+        'admin_list': '👥 *Administrators list:*\n\n',
+        'admin_item': '• {name} ({username})\n  ID: `{id}`\n\n',
+        'no_username': 'no username',
+        'no_name': 'no name',
+        
+        # Статистика (дополнительные)
+        'stats_total': '📈 Total signals: {count}',
+        'stats_profitable': '✅ Profitable: {count}',
+        'stats_unprofitable': '❌ Unprofitable: {count}',
+        'stats_winrate': '💹 Winrate: *{winrate:.1f}%*',
+        'stats_pnl': '💰 Total PnL: *{pnl:+.2f}%*',
+        'stats_avg_rr': '📊 Avg RR: *{rr:.2f}*',
+        'today_total': '📈 Total signals: {count}',
+        'today_active': '🟢 Active: {count}',
+        'week_total': '📈 Total signals: {count}',
+        'week_pnl': '💰 PnL: *{pnl:+.2f}%*',
+        
+        # Конфигурация
+        'config_title': '⚙️ *Current Bot Settings*',
+        'config_status': '🤖 Status: {status}',
+        'config_trading': '📊 *Trading:*',
+        'config_pairs': '• Pairs: {pairs}',
+        'config_timeframes': '• Timeframes: {timeframes}',
+        'config_params': '🎯 *Parameters:*',
     },
     
     'ru': {
         # Команды
         'cmd_start': """
-🤖 *Ультраконсервативный Крипто-Сигнальный Бот*
-
+📊 Доступные команды:
+/stats - Общая статистика
+/today - Статистика за сегодня
+/week - Статистика за неделю
+/language - Сменить язык
+""",
+        'cmd_start_admin': """
 📊 Публичные команды:
 /stats - Общая статистика
 /today - Статистика за сегодня
 /week - Статистика за неделю
 /language - Сменить язык
-/help - Помощь
 
 ⚙️ Админ-команды:
 /config - Текущие настройки
@@ -140,16 +186,8 @@ TRANSLATIONS = {
 /disable - Выключить бота
 
 🔧 Настройка параметров:
-/set_pairs - Торгуемые пары
-/set_timeframes - Таймфреймы
-/set_ai_score - Мин. AI Score
-/set_risk - Процент риска
-/set_leverage - Плечо
-
-👥 Управление админами:
-/add_admin - Добавить админа
-/remove_admin - Удалить админа
-/list_admins - Список админов
+/setpairs - Торгуемые пары
+/settimeframes - Таймфреймы
 """,
         'cmd_help': 'См. /start для всех команд',
         
@@ -161,7 +199,6 @@ TRANSLATIONS = {
         'parameters': 'Параметры',
         'risk': 'Риск',
         'leverage': 'Плечо',
-        'ai_score': 'AI Score',
         'filters': 'Фильтры',
         'volume_24h': 'Объём 24ч',
         'spread': 'Спред',
@@ -225,8 +262,9 @@ TRANSLATIONS = {
         'trading': 'Торговля',
         'pairs': 'Пары',
         'timeframes': 'Таймфреймы',
-        'min_ai_score': 'Мин. AI Score',
-        'use_commands': 'Для изменения используйте команды /set_*',
+        'use_commands': """Для изменения используйте команды:
+/setpairs - Торгуемые пары
+/settimeframes - Таймфреймы""",
         
         'bot_enabled': '✅ Бот включен',
         'bot_disabled': '⏸ Бот выключен',
@@ -239,6 +277,52 @@ TRANSLATIONS = {
         'no_permission': '❌ У вас нет прав для выполнения этой команды.\nТолько администраторы могут использовать эту команду.',
         'error': '❌ Ошибка',
         'usage': 'Использование',
+        'error_number': '❌ Ошибка: укажите число от {min} до {max}',
+        'error_invalid': '❌ Ошибка: неверное значение',
+        'cannot_remove_last_admin': '❌ Нельзя удалить последнего админа!',
+        
+        # Команды настроек
+        'current_pairs': '📊 Текущие пары: {pairs}',
+        'pairs_help': 'Чтобы изменить пары, отправьте:\n`/setpairs BTC/USDT ETH/USDT SOL/USDT`\n\nПример:\n`/setpairs BTC/USDT ETH/USDT`',
+        'current_timeframes': '⏰ Текущие таймфреймы: {timeframes}',
+        'timeframes_help': 'Чтобы изменить таймфреймы, отправьте:\n`/settimeframes 5m 15m 1h 4h`\n\nПример:\n`/settimeframes 1m 5m 1h`',
+        'pairs_updated': '✅ Торгуемые пары обновлены:\n{pairs}',
+        'timeframes_updated': '✅ Таймфреймы обновлены:\n{timeframes}',
+        'pairs_changed': '⚙️ Пары изменены: {pairs}',
+        'timeframes_changed': '⚙️ Таймфреймы изменены: {timeframes}',
+        
+        # Админы
+        'add_admin_usage': 'Использование:\n`/addadmin USER_ID`\n\nЧтобы узнать ID, попросите пользователя написать @username_to_id_bot',
+        'remove_admin_usage': 'Использование:\n`/remove_admin USER_ID`',
+        'admin_added': '✅ Админ {id} добавлен',
+        'admin_removed': '✅ Админ {id} удалён',
+        'new_admin_added': '👥 Новый админ добавлен: {id}',
+        'admin_removed_msg': '👥 Админ удалён: {id}',
+        'no_admins': '📝 Нет активных админов',
+        'admin_list': '👥 *Список администраторов:*\n\n',
+        'admin_item': '• {name} ({username})\n  ID: `{id}`\n\n',
+        'no_username': 'нет username',
+        'no_name': 'нет имени',
+        
+        # Статистика (дополнительные)
+        'stats_total': '📈 Всего сигналов: {count}',
+        'stats_profitable': '✅ Прибыльных: {count}',
+        'stats_unprofitable': '❌ Убыточных: {count}',
+        'stats_winrate': '💹 Winrate: *{winrate:.1f}%*',
+        'stats_pnl': '💰 Общий PnL: *{pnl:+.2f}%*',
+        'stats_avg_rr': '📊 Средний RR: *{rr:.2f}*',
+        'today_total': '📈 Всего сигналов: {count}',
+        'today_active': '🟢 Активных: {count}',
+        'week_total': '📈 Всего сигналов: {count}',
+        'week_pnl': '💰 PnL: *{pnl:+.2f}%*',
+        
+        # Конфигурация
+        'config_title': '⚙️ *Текущие настройки бота*',
+        'config_status': '🤖 Статус: {status}',
+        'config_trading': '📊 *Торговля:*',
+        'config_pairs': '• Пары: {pairs}',
+        'config_timeframes': '• Таймфреймы: {timeframes}',
+        'config_params': '🎯 *Параметры:*',
     }
 }
 

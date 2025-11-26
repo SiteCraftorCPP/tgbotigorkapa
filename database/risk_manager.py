@@ -4,7 +4,7 @@
 
 from .models import Signal, SessionLocal
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 
 
 class RiskManager:
@@ -12,27 +12,18 @@ class RiskManager:
     
     # Константы
     MAX_RISK_PER_TRADE = 1.0  # 1% на сделку
-    MAX_TOTAL_RISK = 20.0  # 20% суммарный риск
+    MAX_TOTAL_RISK = 10.0  # 10% суммарный риск
     MAX_SIGNALS_PER_DAY = 20
     MAX_SIGNALS_PER_COIN = 1
-    COOLDOWN_HOURS = 4  # Cooldown для монеты после закрытия
+    COOLDOWN_HOURS = 3  # Cooldown для монеты после закрытия
     
     @staticmethod
-    def can_open_new_signal(ticker: str) -> tuple[bool, str]:
+    def can_open_new_signal(ticker: str) -> Tuple[bool, str]:
         """Проверка возможности открытия нового сигнала"""
         db = SessionLocal()
         
         try:
-            # 1. Проверка лимита сигналов за сутки
-            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0)
-            signals_today = db.query(Signal).filter(
-                Signal.created_at >= today_start
-            ).count()
-            
-            if signals_today >= RiskManager.MAX_SIGNALS_PER_DAY:
-                return False, f"Достигнут лимит сигналов за сутки ({RiskManager.MAX_SIGNALS_PER_DAY})"
-            
-            # 2. Проверка активного сигнала на эту монету
+            # 1. Проверка активного сигнала на эту монету
             active_signal = db.query(Signal).filter(
                 Signal.ticker == ticker,
                 Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
@@ -41,7 +32,7 @@ class RiskManager:
             if active_signal:
                 return False, f"Уже есть активный сигнал на {ticker}"
             
-            # 3. Проверка cooldown для монеты
+            # 2. Проверка cooldown для монеты
             cooldown_time = datetime.utcnow() - timedelta(hours=RiskManager.COOLDOWN_HOURS)
             recent_signal = db.query(Signal).filter(
                 Signal.ticker == ticker,
@@ -51,16 +42,10 @@ class RiskManager:
             if recent_signal:
                 return False, f"Cooldown для {ticker} (ещё {RiskManager.COOLDOWN_HOURS}ч)"
             
-            # 4. Проверка суммарного риска
-            active_signals = db.query(Signal).filter(
-                Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
-            ).all()
-            
-            # Расчёт текущего риска (упрощённо, по количеству активных сделок)
-            total_risk = len(active_signals) * RiskManager.MAX_RISK_PER_TRADE
-            
-            if total_risk >= RiskManager.MAX_TOTAL_RISK:
-                return False, f"Достигнут лимит суммарного риска ({RiskManager.MAX_TOTAL_RISK}%)"
+            # Убраны ограничения:
+            # - Лимит сигналов за сутки (MAX_SIGNALS_PER_DAY)
+            # - Суммарный риск (MAX_TOTAL_RISK)
+            # - Риск на сделку (MAX_RISK_PER_TRADE) - используется только для расчёта размера позиции
             
             return True, "OK"
             
