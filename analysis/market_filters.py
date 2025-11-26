@@ -21,13 +21,13 @@ class MarketFilters:
     TOP_COINS_LIMIT = 200
     
     # 2. Futures volume
-    MIN_FUTURES_VOLUME_USDT = 3_000_000  # ≥ 3,000,000 USDT
+    MIN_FUTURES_VOLUME_USDT = 2_500_000  # ≥ 2,500,000 USDT
     
     # 3. Spread
-    MAX_SPREAD_PERCENT = 0.2  # ≤ 0.2%
+    MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
     
     # 4. Liquidity
-    MIN_LIQUIDITY_USDT = 150_000  # ≥ 150,000 USDT
+    MIN_LIQUIDITY_USDT = 120_000  # ≥ 120,000 USDT
     LIQUIDITY_PRICE_RANGE = 0.003  # within 0.3% of price
     
     # 5. Anomaly candle 5m
@@ -47,9 +47,12 @@ class MarketFilters:
     
     # 9. ATR volatility filter
     ATR_MIN_PERCENT = 0.3  # ≥ 0.3%
-    ATR_MAX_PERCENT = 3.5  # ≤ 3.5%
+    ATR_MAX_PERCENT = 5.0  # ≤ 5.0%
     
-    # 10. BTC trend filter
+    # 10. Gap filter (Open→Close)
+    MAX_GAP_PERCENT = 1.0  # ≤ 1% разрыв Open→Close
+    
+    # 11. BTC trend filter
     BTC_ADX_MIN = 20  # ADX BTC ≥ 20
     
     # Storage for paused coins
@@ -126,34 +129,40 @@ class MarketFilters:
             return result
         result['liquidity'] = liquidity
         
-        # 6. ATR volatility filter: 0.5% ≤ ATR% ≤ 2.5%
+        # 6. ATR volatility filter: 0.3% ≤ ATR% ≤ 5.0%
         atr_check = MarketFilters.check_atr_volatility(df)
         if not atr_check['passed']:
             result['reason'] = atr_check['reason']
             return result
         result['atr_percent'] = atr_check['atr_percent']
         
-        # 7. BTC trend filter (for altcoins)
+        # 7. Gap filter: нет разрыва Open→Close > 1%
+        gap_check = MarketFilters.check_open_close_gap(df)
+        if not gap_check['passed']:
+            result['reason'] = gap_check['reason']
+            return result
+        
+        # 8. BTC trend filter (for altcoins)
         if direction and ticker not in ['BTC/USDT', 'BTCUSDT']:
             btc_trend_ok = await MarketFilters.check_btc_trend_filter(direction, client)
             if not btc_trend_ok['passed']:
                 result['reason'] = btc_trend_ok['reason']
                 return result
         
-        # 8. Anomaly candle 5m > 3% → pause 15 min
+        # 9. Anomaly candle 5m > 3% → pause 15 min
         if timeframe in ['5m', '1m']:
             has_anomaly_candle = MarketFilters.check_anomaly_candle(df, ticker)
             if has_anomaly_candle:
                 result['reason'] = "Anomaly candle > 3% (15 min pause)"
                 return result
         
-        # 9. Anomaly volume > 250% of average → pause 15 min
+        # 10. Anomaly volume > 250% of average → pause 15 min
         has_anomaly_volume = MarketFilters.check_anomaly_volume(df, ticker)
         if has_anomaly_volume:
             result['reason'] = "Anomaly volume > 250% (15 min pause)"
             return result
         
-        # 10. Gaps forbidden on 5m/15m
+        # 11. Gaps forbidden on 5m/15m (legacy check)
         if timeframe in MarketFilters.GAP_TIMEFRAMES:
             has_gap = MarketFilters.check_gaps(df)
             if has_gap:
@@ -506,7 +515,43 @@ class MarketFilters:
             return result
         
         if atr_percent > MarketFilters.ATR_MAX_PERCENT:
-            result['reason'] = f"ATR% {atr_percent:.2f}% > {MarketFilters.ATR_MAX_PERCENT}% (dangerous volatility)"
+            result['reason'] = f"ATR% {atr_percent:.2f}% > {MarketFilters.ATR_MAX_PERCENT}% (too high volatility)"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_open_close_gap(df: pd.DataFrame) -> Dict:
+        """
+        Проверка разрыва Open→Close > 1%
+        
+        Returns:
+            {'passed': bool, 'reason': str}
+        """
+        result = {
+            'passed': False,
+            'reason': ''
+        }
+        
+        if df.empty or len(df) < 1:
+            result['reason'] = "Not enough data for gap check"
+            return result
+        
+        # Проверяем последнюю свечу
+        last = df.iloc[-1]
+        open_price = last['open']
+        close_price = last['close']
+        
+        if open_price == 0:
+            result['reason'] = "Invalid open price (zero)"
+            return result
+        
+        # Разрыв в процентах
+        gap_percent = abs(close_price - open_price) / open_price * 100
+        
+        if gap_percent > MarketFilters.MAX_GAP_PERCENT:
+            result['reason'] = f"Open→Close gap {gap_percent:.2f}% > {MarketFilters.MAX_GAP_PERCENT}%"
             return result
         
         result['passed'] = True

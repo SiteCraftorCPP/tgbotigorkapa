@@ -15,7 +15,7 @@ class RiskManager:
     MAX_TOTAL_RISK = 10.0  # 10% суммарный риск
     MAX_SIGNALS_PER_DAY = 20
     MAX_SIGNALS_PER_COIN = 1
-    COOLDOWN_HOURS = 3  # Cooldown для монеты после закрытия
+    COOLDOWN_HOURS = 1  # Cooldown 1 час для монеты после закрытия сигнала
     
     @staticmethod
     def can_open_new_signal(ticker: str) -> Tuple[bool, str]:

@@ -14,8 +14,8 @@ class ConservativeFilters:
     TOP_COINS_LIMIT = 200
     MIN_VOLUME_24H = 3_000_000  # $3M минимум
     MAX_SPREAD_PERCENT = 0.3  # 0.3% максимум
-    MIN_ATR_RATIO = 1.5  # Минимальная дистанция до ближайшего уровня в ATR
-    MAX_ATR_RATIO = 2.5  # Максимальный размер стопа в ATR
+    MIN_ATR_RATIO = 1.0  # Минимальная дистанция до ближайшего уровня в ATR (≥ 1 ATR)
+    MAX_ATR_RATIO = 3.0  # Максимальный размер стопа в ATR (≤ 3 ATR)
     
     # Ограничение времён суток - ОТКЛЮЧЕНО (торгуем всегда)
     # FORBIDDEN_HOURS = [0, 1, 2, 3, 4, 5]  # Ночные часы низкой ликвидности
@@ -90,26 +90,44 @@ class ConservativeFilters:
     
     @staticmethod
     def check_level_quality(df: pd.DataFrame, level: float, direction: str) -> bool:
-        """Проверка качества уровня (количество касаний, реакция цены)"""
+        """
+        Проверка качества уровня: минимум 1 касание + подтверждение объёмом
+        """
+        if df.empty or len(df) < 20:
+            return False
         
-        # Упрощённая проверка: есть ли исторические касания уровня
         tolerance = level * 0.002  # 0.2% допуск
         
         touches = 0
-        for i in range(len(df)):
-            low = df.iloc[i]['low']
-            high = df.iloc[i]['high']
+        volume_confirmed = False
+        
+        # Проверяем последние 50 свечей
+        recent = df.tail(50)
+        avg_volume = recent['volume'].mean()
+        
+        for i in range(len(recent)):
+            row = recent.iloc[i]
+            low = row['low']
+            high = row['high']
+            volume = row['volume']
             
             if direction == 'LONG':
+                # Для LONG проверяем касание уровня снизу (low)
                 if abs(low - level) <= tolerance:
                     touches += 1
-            else:
+                    # Подтверждение объёмом: объём выше среднего при касании
+                    if volume > avg_volume * 1.2:
+                        volume_confirmed = True
+            else:  # SHORT
+                # Для SHORT проверяем касание уровня сверху (high)
                 if abs(high - level) <= tolerance:
                     touches += 1
+                    # Подтверждение объёмом: объём выше среднего при касании
+                    if volume > avg_volume * 1.2:
+                        volume_confirmed = True
         
-        # Минимум 2 касания для подтверждения уровня
-        min_touches = 2
-        return touches >= min_touches
+        # Минимум 1 касание + подтверждение объёмом
+        return touches >= 1 and volume_confirmed
     
     @staticmethod
     def check_distance_to_opposite_level(df: pd.DataFrame, entry: float, 
@@ -143,7 +161,7 @@ class ConservativeFilters:
             nearest_support = max([s for s in supports if s < entry], default=entry * 0.9)
             distance = entry - nearest_support
         
-        # Дистанция должна быть хотя бы 1.5 ATR
+        # Дистанция должна быть хотя бы 1 ATR
         return distance >= (atr * ConservativeFilters.MIN_ATR_RATIO)
     
     @staticmethod
@@ -219,19 +237,21 @@ class ConservativeFilters:
             return result
         result['spread'] = spread
         
-        # 4. Волатильность и размер стопа
+        # 4. Волатильность и размер стопа (≤ 3 ATR)
+        stop_distance = abs(entry - stop)
+        atr_ratio = stop_distance / atr if atr > 0 else 999
         if not ConservativeFilters.check_volatility(df, atr, entry, stop):
-            result['reasons'].append(f"Стоп > {ConservativeFilters.MAX_ATR_RATIO} ATR")
+            result['reasons'].append(f"Стоп {atr_ratio:.2f} ATR > {ConservativeFilters.MAX_ATR_RATIO} ATR")
             return result
         
-        # 5. Качество уровня
+        # 5. Качество уровня (минимум 1 касание + подтверждение объёмом)
         if not ConservativeFilters.check_level_quality(df, entry, direction):
-            result['reasons'].append("Слабый уровень входа")
+            result['reasons'].append("Качество уровня: недостаточно касаний или нет подтверждения объёмом")
             return result
         
-        # 6. Дистанция до противоположного уровня
+        # 6. Дистанция до противоположного уровня (≥ 1 ATR)
         if not ConservativeFilters.check_distance_to_opposite_level(df, entry, direction, atr):
-            result['reasons'].append("Близко противонаправленный уровень")
+            result['reasons'].append(f"Дистанция до противоположного уровня < {ConservativeFilters.MIN_ATR_RATIO} ATR")
             return result
         
         # 7. Ограничение времён суток - ОТКЛЮЧЕНО (торгуем всегда)

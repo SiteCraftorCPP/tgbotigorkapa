@@ -44,23 +44,36 @@ class MultiTimeframeAnalysis:
         ta_lower.calculate_all_indicators()
         trend_lower = ta_lower.get_trend_signal()
         
-        # Проверка совпадения
-        aligned = trend_higher['direction'] == trend_lower['direction']
+        # Проверка совпадения или нейтрального тренда на старшем ТФ
+        higher_direction = trend_higher['direction']
+        lower_direction = trend_lower['direction']
+        
+        # Разрешаем сигнал если:
+        # 1. Тренд совпадает на обоих ТФ
+        # 2. На старшем ТФ нейтральный тренд (score близок к 0)
+        higher_score = trend_higher['score']
+        is_neutral = abs(higher_score) < 20  # Нейтральный тренд если score между -20 и +20
+        
+        aligned = (higher_direction == lower_direction) or is_neutral
         
         # Дополнительная проверка: на старшем ТФ цена должна быть выше EMA200 для лонга
+        # Но если тренд нейтральный, пропускаем эту проверку
         last_higher = ta_higher.df.iloc[-1]
         
-        if trend_higher['direction'] == 'LONG':
+        if is_neutral:
+            strong_trend = True  # Нейтральный тренд разрешён
+        elif higher_direction == 'LONG':
             strong_trend = last_higher['close'] > last_higher['ema_200']
         else:
             strong_trend = last_higher['close'] < last_higher['ema_200']
         
         return {
             'aligned': aligned and strong_trend,
-            'higher_trend': trend_higher['direction'],
-            'lower_signal': trend_lower['direction'],
-            'higher_score': trend_higher['score'],
-            'lower_score': trend_lower['score']
+            'higher_trend': higher_direction,
+            'lower_signal': lower_direction,
+            'higher_score': higher_score,
+            'lower_score': trend_lower['score'],
+            'is_neutral': is_neutral
         }
     
     @staticmethod

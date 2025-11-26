@@ -43,7 +43,10 @@ class SignalGenerator:
         # МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ
         mtf = MultiTimeframeAnalysis.check_trend_alignment(self.df_higher, self.df)
         if not mtf['aligned']:
-            log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", f"Trend not aligned: higher={mtf.get('higher_trend')}, lower={mtf.get('lower_signal')}")
+            mtf_reason = f"Trend not aligned: higher={mtf.get('higher_trend')} (score={mtf.get('higher_score', 0):.0f}), lower={mtf.get('lower_signal')}"
+            if mtf.get('is_neutral'):
+                mtf_reason += " | Higher TF is neutral but structure check failed"
+            log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", mtf_reason)
             return None
         
         direction = mtf['higher_trend']
@@ -78,7 +81,11 @@ class SignalGenerator:
         )
         
         if not signal_params:
-            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction}")
+            # Детальная причина: проверяем RR
+            risk = abs(current_price - (current_price - (atr * 2.0) if direction == 'LONG' else current_price + (atr * 2.0)))
+            reward = abs((current_price + (risk * 1.3) if direction == 'LONG' else current_price - (risk * 1.3)) - current_price)
+            rr = reward / risk if risk > 0 else 0
+            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction} | Calculated RR: {rr:.2f}:1 (min 1.3:1 required)")
             return None
         
         # === MARKET FILTERS (STRICT) ===
@@ -200,10 +207,10 @@ class SignalGenerator:
             if stop <= entry or tp1 >= entry or tp4 >= tp3 >= tp2 >= tp1:
                 return None
         
-        # Проверка минимального RR
+        # Проверка минимального RR (≥ 1.3:1 для TP1)
         risk = abs(entry - stop)
         reward = abs(tp1 - entry)
-        if reward / risk < 1.4:  # Минимум 1.4:1 для TP1
+        if reward / risk < 1.3:  # Минимум 1.3:1 для TP1
             return None
         
         return {
