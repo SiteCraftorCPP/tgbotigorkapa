@@ -161,11 +161,39 @@ def _init_default_config():
         db.commit()
         print("OK: Настройки по умолчанию созданы")
         
+        # Инициализация админов из .env
+        _init_default_admins(db)
+        
     except Exception as e:
         print(f"ERROR: Ошибка инициализации настроек: {e}")
         db.rollback()
     finally:
         db.close()
+
+def _init_default_admins(db):
+    """Инициализация админов из .env"""
+    import config
+    from .models import Admin
+    
+    if not config.TELEGRAM_ADMIN_IDS:
+        return
+    
+    for admin_id in config.TELEGRAM_ADMIN_IDS:
+        admin_id = admin_id.strip()
+        if not admin_id:
+            continue
+        
+        # Проверка существования
+        existing = db.query(Admin).filter(Admin.telegram_id == admin_id).first()
+        if not existing:
+            admin = Admin(
+                telegram_id=admin_id,
+                is_active=True
+            )
+            db.add(admin)
+            print(f"✅ Админ {admin_id} добавлен из .env")
+    
+    db.commit()
 
 def get_db():
     """Получение сессии БД"""

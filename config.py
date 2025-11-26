@@ -12,6 +12,9 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 TELEGRAM_ADMIN_CHANNEL_ID = os.getenv('TELEGRAM_ADMIN_CHANNEL_ID')  # Опционально, если не указан - используется основной канал
 
+# Admins (через запятую, например: "123456789,987654321")
+TELEGRAM_ADMIN_IDS = os.getenv('TELEGRAM_ADMIN_IDS', '').split(',') if os.getenv('TELEGRAM_ADMIN_IDS') else []
+
 # Database
 # Используем SQLite (файловая БД, работает без сервера)
 DB_FILE = os.getenv('DB_FILE', 'crypto_signals.db')
