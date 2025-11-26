@@ -1,5 +1,5 @@
 ccxt==4.2.25
-python-telegram-bot==20.7
+python-telegram-bot>=21.0
 pandas>=2.0.0
 numpy>=1.24.0
 ta==0.11.0
