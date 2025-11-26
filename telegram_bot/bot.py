@@ -20,6 +20,8 @@ def admin_only(func):
             lang = get_user_lang(user_id)
             
             is_admin = AdminManager.is_admin(user_id)
+            from utils.logger import logger
+            logger.info(f"[DEBUG] Command {func.__name__} called by user {user_id}, is_admin: {is_admin}")
             print(f"[DEBUG] Command {func.__name__} called by user {user_id}, is_admin: {is_admin}")
             
             if not is_admin:
