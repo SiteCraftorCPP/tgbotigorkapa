@@ -164,8 +164,8 @@ class CryptoSignalBot:
             for result in batch_results:
                 if isinstance(result, Exception):
                     errors_count += 1
-                        continue
-                    
+                    continue
+                
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
                     await self._save_and_send_signal(signal)
