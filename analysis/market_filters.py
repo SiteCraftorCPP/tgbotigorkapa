@@ -385,28 +385,7 @@ class MarketFilters:
             pass  # Если сервис недоступен, используем только проверку по списку
         
         # Если монеты нет в списке - считаем что она не в топ-300
-        return False 'X2Y2', 'LOKA', 'GAL', 'SANTOS', 'PORTO', 'LAZIO', 'ATM', 'ASR', 'BAR',
-            'JUV', 'PSG', 'CITY', 'ACM', 'ALPINE', 'BICO', 'CLV', 'PUNDIX', 'STMX', 'TRU',
-            'VOXEL', 'RARE', 'PYR', 'BAKE', 'BURGER', 'SLP', 'C98', 'FORTH', 'FARM', 'ALCX',
-            'TRIBE', 'PROM', 'BADGER', 'ALPHA', 'TORN', 'DF', 'UNFI', 'HARD', 'WING', 'FOR',
-            # 201-250
-            'BEL', 'DOCK', 'IRIS', 'MDT', 'STPT', 'SUN', 'TKO', 'TROY', 'UTK', 'VIDT',
-            'WIN', 'WNXM', 'XVS', 'ARDR', 'BTS', 'COTI', 'CTXC', 'DATA', 'DGB', 'DUSK',
-            'ERN', 'GAS', 'GLM', 'GNO', 'GTO', 'HIVE', 'JST', 'KEY', 'KMD', 'LINA',
-            'LSK', 'LTO', 'MBL', 'MFT', 'MLN', 'NAS', 'NAV', 'NBS', 'NCT', 'NEBL',
-            'NULS', 'OAX', 'OG', 'OM', 'ONG', 'ONT', 'PERL', 'PIVX', 'PNT', 'POLY',
-            # 251-300
-            'QKC', 'QLC', 'RCN', 'REP', 'RIF', 'RLC', 'SCRT', 'SFI', 'SOUL', 'SRM',
-            'STEEM', 'STX', 'TCT', 'TFUEL', 'TOMO', 'TUSD', 'TVK', 'UPP', 'VIB', 'VTHO',
-            'WAVES', 'WAN', 'WAXP', 'WRX', 'XEM', 'XVG', 'YGG', 'ZEN', 'ZIL', 'ZRX',
-            'COMBO', 'MAV', 'PENDLE', 'ARKM', 'CYBER', 'LOOM', 'BIGTIME', 'MEME', 'TRB', 'NTRN',
-            'BEAMX', 'VANRY', 'MYRO', 'BRETT', 'POPCAT', 'TURBO', 'PEOPLE', 'AUCTION', 'DEGO', 'BETA'
-        ]
-        
-        # Extract base coin from ticker (BTC/USDT -> BTC)
-        base = ticker.split('/')[0] if '/' in ticker else ticker
-        
-        return base in top_coins
+        return False
     
     @staticmethod
     async def check_futures_volume(ticker: str, client: XTClient) -> Optional[float]:
