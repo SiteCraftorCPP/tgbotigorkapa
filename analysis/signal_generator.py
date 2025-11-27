@@ -3,7 +3,7 @@ from typing import Optional, Dict
 from .indicators import TechnicalAnalysis
 from .multi_timeframe import MultiTimeframeAnalysis
 from .conservative_filters import ConservativeFilters
-from .market_filters import MarketFilters  # НОВЫЕ рыночные фильтры
+from .market_filters import MarketFilters  # Рыночные фильтры
 from database.config_manager import ConfigManager
 from database.risk_manager import RiskManager
 from exchange.xt_client import XTClient
@@ -13,6 +13,9 @@ from datetime import datetime
 
 class SignalGenerator:
     """Генератор ультраконсервативных торговых сигналов"""
+    
+    # Минимальный RR для TP1
+    MIN_RR_RATIO = 1.25  # ≥ 1.25:1
     
     def __init__(self, symbol: str, timeframe: str, df: pd.DataFrame, 
                  df_higher: pd.DataFrame, client: XTClient):
@@ -72,7 +75,7 @@ class SignalGenerator:
         current_price = self.ta.df.iloc[-1]['close']
         atr = self.ta.df.iloc[-1]['atr']
         
-        # Расчёт уровней входа/выхода (теперь с 4 TP)
+        # Расчёт уровней входа/выхода (с 3 TP, RR ≥ 1.25)
         signal_params = self._calculate_levels(
             direction,
             current_price,
@@ -83,9 +86,9 @@ class SignalGenerator:
         if not signal_params:
             # Детальная причина: проверяем RR
             risk = abs(current_price - (current_price - (atr * 2.0) if direction == 'LONG' else current_price + (atr * 2.0)))
-            reward = abs((current_price + (risk * 1.3) if direction == 'LONG' else current_price - (risk * 1.3)) - current_price)
+            reward = abs((current_price + (risk * self.MIN_RR_RATIO) if direction == 'LONG' else current_price - (risk * self.MIN_RR_RATIO)) - current_price)
             rr = reward / risk if risk > 0 else 0
-            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction} | Calculated RR: {rr:.2f}:1 (min 1.3:1 required)")
+            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction} | Calculated RR: {rr:.2f}:1 (min {self.MIN_RR_RATIO}:1 required)")
             return None
         
         # === MARKET FILTERS (STRICT) ===
@@ -101,7 +104,10 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, f"MarketFilter:{market_filters_result['reason'].split()[0]}", market_filters_result['reason'])
             return None
         
-        # Дополнительные консервативные фильтры
+        # Получаем ATR% для Channel Position Filter
+        atr_percent = market_filters_result.get('atr_percent')
+        
+        # Дополнительные консервативные фильтры (с передачей atr_percent)
         filters_result = await ConservativeFilters.check_all_filters(
             self.symbol, 
             self.df, 
@@ -109,7 +115,8 @@ class SignalGenerator:
             signal_params['stop'],
             atr,
             direction,
-            self.client
+            self.client,
+            atr_percent  # Для Channel Position Filter
         )
         
         if not filters_result['passed']:
@@ -139,7 +146,7 @@ class SignalGenerator:
             'volume_24h': market_filters_result['volume_24h'],  # Из рыночных фильтров
             'spread_percent': market_filters_result['spread'],  # Из рыночных фильтров
             'atr_value': atr,
-            'liquidity_usdt': market_filters_result.get('liquidity'),  # НОВОЕ: ликвидность
+            'liquidity_usdt': market_filters_result.get('liquidity'),  # Ликвидность
             'analysis': {
                 'trend': trend,
                 'momentum': momentum,
@@ -162,7 +169,7 @@ class SignalGenerator:
             # Stop loss на 2 ATR ниже (ультраконсервативно)
             stop = entry - (atr * 2.0)
             
-            # Расчёт дистанции для TP (RR минимум 2:1)
+            # Расчёт дистанции для TP (RR минимум 1.25:1)
             stop_distance = entry - stop
             
             # 4 уровня TP с увеличивающейся дистанцией
@@ -207,10 +214,10 @@ class SignalGenerator:
             if stop <= entry or tp1 >= entry or tp4 >= tp3 >= tp2 >= tp1:
                 return None
         
-        # Проверка минимального RR (≥ 1.3:1 для TP1)
+        # Проверка минимального RR (≥ 1.25:1 для TP1)
         risk = abs(entry - stop)
         reward = abs(tp1 - entry)
-        if reward / risk < 1.3:  # Минимум 1.3:1 для TP1
+        if reward / risk < self.MIN_RR_RATIO:
             return None
         
         return {
@@ -265,4 +272,3 @@ class SignalGenerator:
             lower_highs = highs[-1] < highs[-2]
             lower_lows = lows[-1] < lows[-2]
             return lower_highs or lower_lows  # Хотя бы одно условие
-

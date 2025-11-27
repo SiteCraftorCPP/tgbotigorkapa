@@ -11,23 +11,27 @@ class ConservativeFilters:
     """Фильтры для отсева некачественных сигналов"""
     
     # Константы
-    TOP_COINS_LIMIT = 200
-    MIN_VOLUME_24H = 3_000_000  # $3M минимум
-    MAX_SPREAD_PERCENT = 0.3  # 0.3% максимум
-    MIN_ATR_RATIO = 1.0  # Минимальная дистанция до ближайшего уровня в ATR (≥ 1 ATR)
+    TOP_COINS_LIMIT = 300
+    MIN_VOLUME_24H = 2_500_000  # $2.5M минимум
+    MAX_SPREAD_PERCENT = 0.35  # 0.35% максимум
+    MIN_ATR_RATIO = 0.8  # Минимальная дистанция до ближайшего уровня в ATR (≥ 0.8 ATR)
     MAX_ATR_RATIO = 3.0  # Максимальный размер стопа в ATR (≤ 3 ATR)
-    
-    # Ограничение времён суток - ОТКЛЮЧЕНО (торгуем всегда)
-    # FORBIDDEN_HOURS = [0, 1, 2, 3, 4, 5]  # Ночные часы низкой ликвидности
     
     # Минимальная корреляция с BTC/ETH для альткоинов
     MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
     
+    # Channel Position Filter - адаптивные зоны
+    CHANNEL_ZONES = {
+        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65},    # ATR < 1%: 35-65%
+        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}, # ATR 1-3%: 30-70%
+        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.25, 'forbidden_max': 0.75}  # ATR > 3%: 25-75%
+    }
+    
     @staticmethod
     async def check_top_100(ticker: str, client: XTClient) -> bool:
-        """Проверка, что монета в ТОП-100 по капитализации"""
+        """Проверка, что монета в ТОП-300 по капитализации"""
         # TODO: Интеграция с CoinGecko/CoinMarketCap API
-        # Пока упрощённо - все пары из списка считаем ТОП-100
+        # Пока упрощённо - все пары из списка считаем ТОП-300
         return True
     
     @staticmethod
@@ -82,7 +86,7 @@ class ConservativeFilters:
         stop_distance = abs(entry - stop)
         atr_ratio = stop_distance / atr if atr > 0 else 999
         
-        # Стоп должен быть не больше 2-2.5 ATR
+        # Стоп должен быть не больше 3 ATR
         if atr_ratio > ConservativeFilters.MAX_ATR_RATIO:
             return False
         
@@ -132,7 +136,7 @@ class ConservativeFilters:
     @staticmethod
     def check_distance_to_opposite_level(df: pd.DataFrame, entry: float, 
                                         direction: str, atr: float) -> bool:
-        """Проверка дистанции до ближайшего противонаправленного уровня"""
+        """Проверка дистанции до ближайшего противонаправленного уровня (≥ 0.8 ATR)"""
         
         # Находим локальные максимумы и минимумы
         window = 20
@@ -161,14 +165,74 @@ class ConservativeFilters:
             nearest_support = max([s for s in supports if s < entry], default=entry * 0.9)
             distance = entry - nearest_support
         
-        # Дистанция должна быть хотя бы 1 ATR
+        # Дистанция должна быть хотя бы 0.8 ATR
         return distance >= (atr * ConservativeFilters.MIN_ATR_RATIO)
     
     @staticmethod
-    def check_time_of_day() -> bool:
-        """Проверка времени суток - ОТКЛЮЧЕНО (торгуем всегда)"""
-        # Ограничение по времени суток убрано - торгуем всегда
-        return True
+    def check_channel_position(df: pd.DataFrame, entry: float, atr_percent: float, direction: str) -> Dict:
+        """
+        Channel Position Filter (адаптивный): не входить в сделку в середине канала
+        
+        Если ATR% < 1% → запрет зоны 35–65% диапазона
+        Если ATR% от 1% до 3% → запрет зоны 30–70%
+        Если ATR% > 3% → запрет зоны 25–75%
+        
+        Returns:
+            {'passed': bool, 'reason': str, 'position_percent': float}
+        """
+        result = {
+            'passed': False,
+            'reason': '',
+            'position_percent': None
+        }
+        
+        if df.empty or len(df) < 20:
+            result['passed'] = True
+            result['reason'] = "Not enough data for channel check"
+            return result
+        
+        # Находим локальный High и Low за последние 50 свечей
+        recent = df.tail(50)
+        local_high = recent['high'].max()
+        local_low = recent['low'].min()
+        
+        if local_high == local_low:
+            result['passed'] = True
+            result['reason'] = "No price range (high == low)"
+            return result
+        
+        # Позиция цены в канале (0 = low, 1 = high)
+        channel_range = local_high - local_low
+        position_percent = (entry - local_low) / channel_range
+        result['position_percent'] = position_percent
+        
+        # Определяем запретную зону по волатильности
+        if atr_percent < 1.0:
+            zone = ConservativeFilters.CHANNEL_ZONES['low_volatility']
+        elif atr_percent <= 3.0:
+            zone = ConservativeFilters.CHANNEL_ZONES['medium_volatility']
+        else:
+            zone = ConservativeFilters.CHANNEL_ZONES['high_volatility']
+        
+        forbidden_min = zone['forbidden_min']
+        forbidden_max = zone['forbidden_max']
+        
+        # Проверяем, находится ли цена в запретной зоне
+        if forbidden_min <= position_percent <= forbidden_max:
+            result['reason'] = f"Price in forbidden channel zone: {position_percent*100:.1f}% (forbidden: {forbidden_min*100:.0f}%-{forbidden_max*100:.0f}% for ATR {atr_percent:.2f}%)"
+            return result
+        
+        # Дополнительная проверка: для LONG цена должна быть ближе к low, для SHORT - к high
+        if direction == 'LONG' and position_percent > 0.7:
+            result['reason'] = f"LONG entry too high in channel: {position_percent*100:.1f}% > 70%"
+            return result
+        
+        if direction == 'SHORT' and position_percent < 0.3:
+            result['reason'] = f"SHORT entry too low in channel: {position_percent*100:.1f}% < 30%"
+            return result
+        
+        result['passed'] = True
+        return result
     
     @staticmethod
     async def check_btc_eth_correlation(ticker: str, direction: str, client: XTClient) -> bool:
@@ -207,7 +271,7 @@ class ConservativeFilters:
     @staticmethod
     async def check_all_filters(ticker: str, df: pd.DataFrame, entry: float, 
                                stop: float, atr: float, direction: str, 
-                               client: XTClient) -> Dict:
+                               client: XTClient, atr_percent: float = None) -> Dict:
         """Проверка всех фильтров. Возвращает результат и метаданные"""
         
         result = {
@@ -218,9 +282,9 @@ class ConservativeFilters:
             'reasons': []
         }
         
-        # 1. ТОП-100
+        # 1. ТОП-300
         if not await ConservativeFilters.check_top_100(ticker, client):
-            result['reasons'].append("Не ТОП-100")
+            result['reasons'].append("Не ТОП-300")
             return result
         
         # 2. Объём
@@ -249,17 +313,19 @@ class ConservativeFilters:
             result['reasons'].append("Качество уровня: недостаточно касаний или нет подтверждения объёмом")
             return result
         
-        # 6. Дистанция до противоположного уровня (≥ 1 ATR)
+        # 6. Дистанция до противоположного уровня (≥ 0.8 ATR)
         if not ConservativeFilters.check_distance_to_opposite_level(df, entry, direction, atr):
             result['reasons'].append(f"Дистанция до противоположного уровня < {ConservativeFilters.MIN_ATR_RATIO} ATR")
             return result
         
-        # 7. Ограничение времён суток - ОТКЛЮЧЕНО (торгуем всегда)
-        # if not ConservativeFilters.check_time_of_day():
-        #     result['reasons'].append("Неблагоприятное время суток (UTC)")
-        #     return result
+        # 7. Channel Position Filter (адаптивный)
+        if atr_percent is not None:
+            channel_check = ConservativeFilters.check_channel_position(df, entry, atr_percent, direction)
+            if not channel_check['passed']:
+                result['reasons'].append(channel_check['reason'])
+                return result
         
-        # 8. BTC/ETH корреляция (согласно п.4 инструкции)
+        # 8. BTC/ETH корреляция
         if not await ConservativeFilters.check_btc_eth_correlation(ticker, direction, client):
             result['reasons'].append("Неблагоприятное движение BTC/ETH")
             return result
@@ -267,4 +333,3 @@ class ConservativeFilters:
         # Все фильтры пройдены
         result['passed'] = True
         return result
-
