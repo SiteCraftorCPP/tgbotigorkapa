@@ -363,32 +363,29 @@ class MarketFilters:
         """
         Check if coin is in TOP-300 by market cap
         
-        TODO: Integrate with CoinGecko/CoinMarketCap API
-        For now simplified - consider major coins as TOP-300
+        Использует текущий список торговых пар из ConfigManager
+        Если монета в списке торговых пар - значит она в топ-300
         """
-        # Major coins list (simplified) - TOP 300
-        top_coins = [
-            # Top 50
-            'BTC', 'ETH', 'BNB', 'XRP', 'ADA', 'DOGE', 'SOL', 'TRX', 'MATIC', 'DOT',
-            'LTC', 'SHIB', 'AVAX', 'UNI', 'LINK', 'ATOM', 'XMR', 'ETC', 'BCH', 'XLM',
-            'NEAR', 'ALGO', 'FIL', 'VET', 'ICP', 'APT', 'HBAR', 'QNT', 'ARB', 'OP',
-            'CRO', 'LDO', 'MKR', 'AAVE', 'GRT', 'SNX', 'RUNE', 'FTM', 'SAND', 'MANA',
-            'AXS', 'THETA', 'XTZ', 'EOS', 'KLAY', 'BSV', 'FLOW', 'CHZ', 'HNT', 'ENJ',
-            # 51-100
-            'IMX', 'RPL', 'EGLD', 'PEPE', 'INJ', 'SUI', 'SEI', 'BLUR', 'WLD', 'CFX',
-            'MINA', 'XEC', 'ZEC', 'NEO', 'IOTA', 'CAKE', 'KAVA', 'GMX', 'ZIL', 'ONE',
-            'HOT', 'BAT', 'COMP', 'CRV', 'DYDX', 'ENS', '1INCH', 'LRC', 'ANKR', 'CELO',
-            'ROSE', 'FXS', 'KSM', 'QTUM', 'ICX', 'ZRX', 'STORJ', 'SKL', 'API3', 'BAND',
-            'MASK', 'REN', 'OCEAN', 'NKN', 'SXP', 'CELR', 'REEF', 'DENT', 'MTL', 'OGN',
-            # 101-150
-            'WOO', 'AGIX', 'FET', 'RNDR', 'AR', 'GALA', 'AUDIO', 'SUPER', 'YFI', 'SUSHI',
-            'UMA', 'BOND', 'PERP', 'RAY', 'SRM', 'ALICE', 'TLM', 'ILV', 'SPELL', 'CVX',
-            'LQTY', 'SSV', 'STG', 'MAGIC', 'RDNT', 'JOE', 'LEVER', 'HIGH', 'HOOK', 'ID',
-            'EDU', 'SFP', 'TWT', 'FLOKI', 'LUNC', 'USTC', 'ORDI', 'SATS', '1000SATS', 'RATS',
-            'BONK', 'WIF', 'MEME', 'PIXEL', 'STRK', 'DYM', 'ALT', 'JUP', 'PYTH', 'TIA',
-            # 151-200
-            'ASTR', 'GLMR', 'MOVR', 'ACH', 'JASMY', 'RSR', 'CTSI', 'POLS', 'POND', 'PHA',
-            'LOOKS', 'X2Y2', 'LOKA', 'GAL', 'SANTOS', 'PORTO', 'LAZIO', 'ATM', 'ASR', 'BAR',
+        from database.config_manager import ConfigManager
+        
+        # Получаем текущий список торговых пар (автоматически обновляется из CoinGecko)
+        trading_pairs = ConfigManager.get_trading_pairs()
+        
+        # Если монета есть в списке торговых пар - значит она в топ-300
+        if ticker in trading_pairs:
+            return True
+        
+        # Также проверяем через TopCoinsService (если доступен)
+        try:
+            from utils.top_coins import TopCoinsService
+            coin_info = await TopCoinsService.get_coin_info(ticker.replace('/USDT', ''))
+            if coin_info and coin_info.get('rank', 999) <= MarketFilters.TOP_COINS_LIMIT:
+                return True
+        except:
+            pass  # Если сервис недоступен, используем только проверку по списку
+        
+        # Если монеты нет в списке - считаем что она не в топ-300
+        return False 'X2Y2', 'LOKA', 'GAL', 'SANTOS', 'PORTO', 'LAZIO', 'ATM', 'ASR', 'BAR',
             'JUV', 'PSG', 'CITY', 'ACM', 'ALPINE', 'BICO', 'CLV', 'PUNDIX', 'STMX', 'TRU',
             'VOXEL', 'RARE', 'PYR', 'BAKE', 'BURGER', 'SLP', 'C98', 'FORTH', 'FARM', 'ALCX',
             'TRIBE', 'PROM', 'BADGER', 'ALPHA', 'TORN', 'DF', 'UNFI', 'HARD', 'WING', 'FOR',
