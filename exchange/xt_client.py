@@ -429,14 +429,21 @@ class XTClient:
                             print(f"INFO: Использован Binance fallback для {symbol} {timeframe}")
                             return df
                     except Exception as binance_error:
-                        print(f"Ошибка получения OHLCV через Binance fallback для {symbol}: {binance_error}")
+                        # Тихая обработка - пара недоступна на Binance
+                        # Не логируем каждую ошибку, чтобы не засорять логи
+                        pass
                 
                 # Если оба метода не сработали, возвращаем пустой DataFrame
-                print(f"Ошибка получения OHLCV для {symbol} через XT.com: {xt_error}")
+                # Логируем только если это не известная проблема (символ не найден)
+                error_str = str(xt_error).lower()
+                if 'does not have market symbol' not in error_str and '400' not in error_str:
+                    # Только нестандартные ошибки логируем
+                    from utils.logger import log_warning
+                    log_warning(f"OHLCV unavailable for {symbol}: {xt_error}")
             
             return pd.DataFrame()
         except Exception as e:
-            print(f"Ошибка получения OHLCV для {symbol}: {e}")
+            # Тихая обработка ошибок для недоступных пар
             return pd.DataFrame()
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
