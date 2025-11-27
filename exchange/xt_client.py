@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import requests
+from utils.logger import logger
 
 class XTExchange(ccxt.binance):
     """Кастомный класс для работы с XT.com через ccxt API"""

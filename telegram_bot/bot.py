@@ -95,7 +95,12 @@ class TelegramBot:
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
+        from utils.logger import logger
+        ticker = signal.get('ticker', 'UNKNOWN')
+        
         try:
+            logger.info(f"[TELEGRAM] Preparing to send signal {ticker} to channel...")
+            
             # ВАЛИДАЦИЯ: проверяем что сигнал корректный
             entry = signal.get('entry_price', 0)
             stop = signal.get('stop_loss', 0)
@@ -106,34 +111,40 @@ class TelegramBot:
             # Проверка на нулевые/одинаковые значения
             all_levels = [entry, stop, tp1, tp2, tp3]
             if any(level <= 0 for level in all_levels):
-                from utils.logger import logger
-                logger.error(f"[BLOCKED] Invalid signal - zero levels: {signal.get('ticker')} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+                logger.error(f"[BLOCKED] Invalid signal - zero levels: {ticker} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
                 return False
             
             # Проверка на дубликаты
             if len(set(all_levels)) < len(all_levels):
-                from utils.logger import logger
-                logger.error(f"[BLOCKED] Invalid signal - duplicate levels: {signal.get('ticker')} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+                logger.error(f"[BLOCKED] Invalid signal - duplicate levels: {ticker} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
                 return False
             
             # Проверка минимальной дистанции (0.1% между уровнями)
             min_dist = entry * 0.001
             if abs(entry - stop) < min_dist or abs(entry - tp1) < min_dist:
-                from utils.logger import logger
-                logger.error(f"[BLOCKED] Invalid signal - levels too close: {signal.get('ticker')} min_dist={min_dist}")
+                logger.error(f"[BLOCKED] Invalid signal - levels too close: {ticker} min_dist={min_dist}")
                 return False
             
+            # Проверка наличия TELEGRAM_CHANNEL_ID
+            if not config.TELEGRAM_CHANNEL_ID:
+                logger.error(f"[ERROR] TELEGRAM_CHANNEL_ID not configured!")
+                return False
+            
+            logger.info(f"[TELEGRAM] Channel ID: {config.TELEGRAM_CHANNEL_ID}")
+            
             message = self._format_signal_message(signal, lang='en')
+            logger.debug(f"[TELEGRAM] Message formatted, length: {len(message)} chars")
             
             # Кнопка с реферальной ссылкой XT.com
             keyboard = [
                 [InlineKeyboardButton(
-                    "💸 Official Partner XT CASHBACK 40%",
+                    "40% CASHBACK 💸 Official partner XT",
                     url="https://www.xt.com/en/accounts/register?ref=KINGELONMARS"
                 )]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            logger.info(f"[TELEGRAM] Sending message to channel {config.TELEGRAM_CHANNEL_ID}...")
             await self.bot.send_message(
                 chat_id=config.TELEGRAM_CHANNEL_ID,
                 text=message,
@@ -141,13 +152,17 @@ class TelegramBot:
                 reply_markup=reply_markup
             )
             
+            logger.info(f"[TELEGRAM] ✅ Signal {ticker} successfully sent to channel!")
             return True
         except Exception as e:
-            error_msg = f"Error sending signal: {e}"
+            error_msg = f"Error sending signal {ticker}: {e}"
+            logger.error(f"[TELEGRAM] {error_msg}")
+            import traceback
+            logger.error(f"[TELEGRAM] Traceback: {traceback.format_exc()}")
             try:
                 await self.send_admin_message(error_msg)
             except:
-                print(f"[ERROR] {error_msg}")
+                logger.error(f"[ERROR] Could not send admin message: {error_msg}")
             return False
     
     async def send_admin_message(self, message: str):

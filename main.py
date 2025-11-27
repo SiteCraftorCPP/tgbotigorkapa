@@ -93,6 +93,7 @@ class CryptoSignalBot:
                 signal = await generator.generate_signal()
                 
                 if signal:
+                    log_info(f"[SIGNAL GENERATED] {pair} {timeframe} {signal.get('direction')} - Entry: {signal.get('entry_price')}, Stop: {signal.get('stop_loss')}")
                     return {
                         'pair': pair,
                         'timeframe': timeframe,
@@ -165,7 +166,7 @@ class CryptoSignalBot:
                 if isinstance(result, Exception):
                     errors_count += 1
                     continue
-                
+                    
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
                     await self._save_and_send_signal(signal)
@@ -212,10 +213,11 @@ class CryptoSignalBot:
             ).first()
             
             if recent_signal:
-                log_info(f"Skipping {signal['ticker']}: active signal exists")
+                log_info(f"Skipping {signal['ticker']}: active signal exists (ID: {recent_signal.signal_id}, Status: {recent_signal.status})")
                 return
             
             # Сохранение в БД
+            log_info(f"[SAVING] Saving signal {signal['ticker']} {signal['direction']} to database...")
             db_signal = Signal(
                 signal_id=signal['signal_id'],
                 ticker=signal['ticker'],
@@ -238,17 +240,25 @@ class CryptoSignalBot:
             
             db.add(db_signal)
             db.commit()
+            log_info(f"[SAVED] Signal {signal['ticker']} saved to database (ID: {db_signal.id})")
             
             # Record signal time for cooldown
             MarketFilters.record_signal_time(signal['ticker'])
             
             # Send to Telegram
-            await self.telegram_bot.send_signal(signal)
+            log_info(f"[SENDING] Sending signal {signal['ticker']} to Telegram channel...")
+            send_result = await self.telegram_bot.send_signal(signal)
             
-            log_signal(signal)
+            if send_result:
+                log_info(f"[SENT] Signal {signal['ticker']} successfully sent to Telegram channel")
+                log_signal(signal)
+            else:
+                log_error(f"Failed to send signal {signal['ticker']} to Telegram channel", "send_signal")
             
         except Exception as e:
             log_error(str(e), f"saving signal {signal.get('ticker', 'unknown')}")
+            import traceback
+            log_error(traceback.format_exc(), f"traceback for {signal.get('ticker', 'unknown')}")
             db.rollback()
         finally:
             db.close()
