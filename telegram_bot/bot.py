@@ -86,6 +86,33 @@ class TelegramBot:
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
         try:
+            # ВАЛИДАЦИЯ: проверяем что сигнал корректный
+            entry = signal.get('entry_price', 0)
+            stop = signal.get('stop_loss', 0)
+            tp1 = signal.get('take_profit_1', 0)
+            tp2 = signal.get('take_profit_2', 0)
+            tp3 = signal.get('take_profit_3', 0)
+            
+            # Проверка на нулевые/одинаковые значения
+            all_levels = [entry, stop, tp1, tp2, tp3]
+            if any(level <= 0 for level in all_levels):
+                from utils.logger import logger
+                logger.error(f"[BLOCKED] Invalid signal - zero levels: {signal.get('ticker')} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+                return False
+            
+            # Проверка на дубликаты
+            if len(set(all_levels)) < len(all_levels):
+                from utils.logger import logger
+                logger.error(f"[BLOCKED] Invalid signal - duplicate levels: {signal.get('ticker')} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+                return False
+            
+            # Проверка минимальной дистанции (0.1% между уровнями)
+            min_dist = entry * 0.001
+            if abs(entry - stop) < min_dist or abs(entry - tp1) < min_dist:
+                from utils.logger import logger
+                logger.error(f"[BLOCKED] Invalid signal - levels too close: {signal.get('ticker')} min_dist={min_dist}")
+                return False
+            
             message = self._format_signal_message(signal, lang='en')
             
             # Кнопка с реферальной ссылкой XT.com

@@ -17,6 +17,9 @@ class SignalGenerator:
     # Минимальный RR для TP1
     MIN_RR_RATIO = 1.25  # ≥ 1.25:1
     
+    # Минимальная дистанция между уровнями (в процентах)
+    MIN_LEVEL_DISTANCE_PERCENT = 0.1  # 0.1% минимум
+    
     def __init__(self, symbol: str, timeframe: str, df: pd.DataFrame, 
                  df_higher: pd.DataFrame, client: XTClient):
         self.symbol = symbol
@@ -25,6 +28,28 @@ class SignalGenerator:
         self.df_higher = df_higher
         self.client = client
         self.ta = TechnicalAnalysis(df)
+    
+    def _get_price_precision(self, price: float) -> int:
+        """Определяет количество знаков после запятой для округления цены"""
+        if price >= 1000:
+            return 2  # BTC, ETH - 2 знака
+        elif price >= 100:
+            return 3
+        elif price >= 10:
+            return 4
+        elif price >= 1:
+            return 5
+        elif price >= 0.1:
+            return 6
+        elif price >= 0.01:
+            return 7
+        else:
+            return 8  # Очень дешёвые монеты
+    
+    def _round_price(self, price: float, reference_price: float) -> float:
+        """Округление цены с учётом её величины"""
+        precision = self._get_price_precision(reference_price)
+        return round(price, precision)
         
     async def generate_signal(self) -> Optional[Dict]:
         """Генерация ультраконсервативного сигнала"""
@@ -84,11 +109,14 @@ class SignalGenerator:
         )
         
         if not signal_params:
-            # Детальная причина: проверяем RR
-            risk = abs(current_price - (current_price - (atr * 2.0) if direction == 'LONG' else current_price + (atr * 2.0)))
-            reward = abs((current_price + (risk * self.MIN_RR_RATIO) if direction == 'LONG' else current_price - (risk * self.MIN_RR_RATIO)) - current_price)
-            rr = reward / risk if risk > 0 else 0
-            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction} | Calculated RR: {rr:.2f}:1 (min {self.MIN_RR_RATIO}:1 required)")
+            # Детальная причина: проверяем почему уровни не прошли
+            stop_distance = atr * 2.0
+            rr = (stop_distance * 1.5) / stop_distance if stop_distance > 0 else 0
+            atr_pct = (atr / current_price * 100) if current_price > 0 else 0
+            log_filter_block(
+                self.symbol, self.timeframe, "LevelCalculation", 
+                f"Invalid levels for {direction} | Price: {current_price:.6f}, ATR: {atr:.6f} ({atr_pct:.3f}%), Stop dist: {stop_distance:.6f}"
+            )
             return None
         
         # === MARKET FILTERS (STRICT) ===
@@ -160,13 +188,25 @@ class SignalGenerator:
         return signal
     
     def _calculate_levels(self, direction: str, price: float, atr: float, levels: dict) -> Optional[Dict]:
-        """Расчёт уровней входа, стопа и 4 тейк-профитов"""
+        """Расчёт уровней входа, стопа и 3 тейк-профитов"""
+        from utils.logger import logger
         
         # Валидация входных данных
-        if price <= 0 or atr <= 0:
+        if price <= 0:
+            logger.debug(f"[{self.symbol}] Invalid price: {price}")
             return None
         
-        # Entry = текущая цена или лимитный ордер чуть лучше
+        if atr <= 0:
+            logger.debug(f"[{self.symbol}] Invalid ATR: {atr}")
+            return None
+        
+        # Проверка минимального ATR (должен быть хотя бы 0.1% от цены)
+        min_atr = price * 0.001  # 0.1%
+        if atr < min_atr:
+            logger.debug(f"[{self.symbol}] ATR too small: {atr} < {min_atr} (0.1% of price)")
+            return None
+        
+        # Entry = текущая цена
         entry = price
         
         if direction == 'LONG':
@@ -175,29 +215,32 @@ class SignalGenerator:
             
             # Проверка, что stop не отрицательный
             if stop <= 0:
+                logger.debug(f"[{self.symbol}] Stop <= 0 for LONG: {stop}")
                 return None
             
-            # Расчёт дистанции для TP (RR минимум 1.25:1)
+            # Расчёт дистанции для TP
             stop_distance = entry - stop
             
-            # Проверка, что stop_distance > 0
-            if stop_distance <= 0:
+            # Проверка минимальной дистанции (0.5% от цены минимум)
+            min_distance = entry * 0.005
+            if stop_distance < min_distance:
+                logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
                 return None
             
-            # 4 уровня TP с увеличивающейся дистанцией
+            # 3 уровня TP с увеличивающейся дистанцией
             tp1 = entry + (stop_distance * 1.5)  # RR 1.5:1
             tp2 = entry + (stop_distance * 2.5)  # RR 2.5:1
             tp3 = entry + (stop_distance * 3.5)  # RR 3.5:1
-            tp4 = entry + (stop_distance * 5.0)  # RR 5:1
             
             # Проверка, что не пробиваем сопротивление
-            if tp4 > levels['resistance'] * 1.02:
-                tp4 = levels['resistance'] * 0.99
+            if tp3 > levels['resistance'] * 1.02:
+                tp3 = levels['resistance'] * 0.99
                 # Пересчитываем остальные TP пропорционально
-                total_distance = tp4 - entry
-                tp1 = entry + (total_distance * 0.25)
-                tp2 = entry + (total_distance * 0.50)
-                tp3 = entry + (total_distance * 0.75)
+                total_distance = tp3 - entry
+                if total_distance <= 0:
+                    return None
+                tp1 = entry + (total_distance * 0.4)
+                tp2 = entry + (total_distance * 0.7)
                 
         else:  # SHORT
             # Stop loss на 2 ATR выше
@@ -205,65 +248,97 @@ class SignalGenerator:
             
             stop_distance = stop - entry
             
-            # Проверка, что stop_distance > 0
-            if stop_distance <= 0:
+            # Проверка минимальной дистанции (0.5% от цены минимум)
+            min_distance = entry * 0.005
+            if stop_distance < min_distance:
+                logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
                 return None
             
             tp1 = entry - (stop_distance * 1.5)
             tp2 = entry - (stop_distance * 2.5)
             tp3 = entry - (stop_distance * 3.5)
-            tp4 = entry - (stop_distance * 5.0)
             
             # Проверка, что TP не отрицательные
-            if tp4 <= 0:
+            if tp3 <= 0:
+                logger.debug(f"[{self.symbol}] TP3 <= 0 for SHORT: {tp3}")
                 return None
             
             # Проверка, что не пробиваем поддержку
-            if tp4 < levels['support'] * 0.98:
-                tp4 = levels['support'] * 1.01
-                total_distance = entry - tp4
-                tp1 = entry - (total_distance * 0.25)
-                tp2 = entry - (total_distance * 0.50)
-                tp3 = entry - (total_distance * 0.75)
+            if tp3 < levels['support'] * 0.98:
+                tp3 = levels['support'] * 1.01
+                total_distance = entry - tp3
+                if total_distance <= 0:
+                    return None
+                tp1 = entry - (total_distance * 0.4)
+                tp2 = entry - (total_distance * 0.7)
         
-        # Валидация уровней
+        # Округление с учётом величины цены
+        entry = self._round_price(entry, price)
+        stop = self._round_price(stop, price)
+        tp1 = self._round_price(tp1, price)
+        tp2 = self._round_price(tp2, price)
+        tp3 = self._round_price(tp3, price)
+        
+        # КРИТИЧЕСКАЯ ПРОВЕРКА: все уровни должны быть РАЗНЫМИ после округления
+        all_levels = [entry, stop, tp1, tp2, tp3]
+        if len(set(all_levels)) < len(all_levels):
+            logger.warning(f"[{self.symbol}] Duplicate levels after rounding: entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+            return None
+        
+        # Валидация порядка уровней
         if direction == 'LONG':
-            if stop >= entry or tp1 <= entry or tp4 <= tp3 <= tp2 <= tp1:
-                return None
-            # Проверка, что все уровни разные
-            if stop == entry or tp1 == entry or tp2 == tp1 or tp3 == tp2 or tp4 == tp3:
+            if not (stop < entry < tp1 < tp2 < tp3):
+                logger.debug(f"[{self.symbol}] Invalid LONG level order: stop={stop}, entry={entry}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
                 return None
         else:
-            if stop <= entry or tp1 >= entry or tp4 >= tp3 >= tp2 >= tp1:
+            if not (stop > entry > tp1 > tp2 > tp3):
+                logger.debug(f"[{self.symbol}] Invalid SHORT level order: stop={stop}, entry={entry}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
                 return None
-            # Проверка, что все уровни разные
-            if stop == entry or tp1 == entry or tp2 == tp1 or tp3 == tp2 or tp4 == tp3:
-                return None
+        
+        # Проверка минимальной дистанции между уровнями (в процентах)
+        min_dist_pct = self.MIN_LEVEL_DISTANCE_PERCENT / 100
+        
+        def check_distance(level1, level2, name1, name2):
+            dist_pct = abs(level1 - level2) / entry
+            if dist_pct < min_dist_pct:
+                logger.debug(f"[{self.symbol}] Distance {name1}-{name2} too small: {dist_pct*100:.4f}% < {self.MIN_LEVEL_DISTANCE_PERCENT}%")
+                return False
+            return True
+        
+        if not check_distance(entry, stop, "entry", "stop"):
+            return None
+        if not check_distance(entry, tp1, "entry", "tp1"):
+            return None
+        if not check_distance(tp1, tp2, "tp1", "tp2"):
+            return None
+        if not check_distance(tp2, tp3, "tp2", "tp3"):
+            return None
         
         # Проверка минимального RR (≥ 1.25:1 для TP1)
         risk = abs(entry - stop)
         reward = abs(tp1 - entry)
         
         if risk <= 0 or reward <= 0:
+            logger.debug(f"[{self.symbol}] Invalid risk/reward: risk={risk}, reward={reward}")
             return None
         
-        if reward / risk < self.MIN_RR_RATIO:
+        rr_ratio = reward / risk
+        if rr_ratio < self.MIN_RR_RATIO:
+            logger.debug(f"[{self.symbol}] RR ratio too low: {rr_ratio:.2f} < {self.MIN_RR_RATIO}")
             return None
         
-        # Финальная проверка: все уровни должны быть разными
-        levels_list = [entry, stop, tp1, tp2, tp3, tp4]
-        if len(set(levels_list)) < len(levels_list):
-            return None
+        # TP4 = TP3 (для обратной совместимости, но не используется в сообщении)
+        tp4 = tp3
         
         return {
-            'entry': round(entry, 2),
-            'stop': round(stop, 2),
-            'tp1': round(tp1, 2),
-            'tp2': round(tp2, 2),
-            'tp3': round(tp3, 2),
-            'tp4': round(tp4, 2)
+            'entry': entry,
+            'stop': stop,
+            'tp1': tp1,
+            'tp2': tp2,
+            'tp3': tp3,
+            'tp4': tp4  # Для совместимости
         }
-    
+
     def _check_market_structure(self, direction: str) -> bool:
         """
         Проверка структуры рынка (HH/HL для LONG, LH/LL для SHORT)
