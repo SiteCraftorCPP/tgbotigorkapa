@@ -91,7 +91,7 @@ class BotConfig(Base):
     
     id = Column(Integer, primary_key=True)
     key = Column(String(50), unique=True, nullable=False)
-    value = Column(String(200), nullable=False)
+    value = Column(Text, nullable=False)  # Text для поддержки 200+ торговых пар
     description = Column(Text)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

@@ -259,10 +259,13 @@ class MarketFilters:
     async def check_btc_volatility_guard(client: XTClient) -> Dict:
         """
         BTC Volatility Guard: при движении BTC > 1.5% за 5 минут — пауза 10 минут
+        Использует кэш для оптимизации при 200+ парах
         
         Returns:
             {'passed': bool, 'reason': str}
         """
+        from utils.cache import btc_cache
+        
         result = {
             'passed': False,
             'reason': ''
@@ -275,10 +278,10 @@ class MarketFilters:
             return result
         
         try:
-            # Получаем данные BTC за последние 5 минут (1m candles)
-            btc_df = await client.get_ohlcv('BTC/USDT', '1m', limit=10)
+            # Получаем данные BTC из кэша (или загружаем если устарели)
+            btc_df = await btc_cache.get_btc_ohlcv_1m(client)
             
-            if btc_df.empty or len(btc_df) < 5:
+            if btc_df is None or btc_df.empty or len(btc_df) < 5:
                 result['passed'] = True
                 result['reason'] = "BTC data unavailable, filter skipped"
                 return result
@@ -750,6 +753,7 @@ class MarketFilters:
     async def check_btc_trend_filter(direction: str, client: XTClient) -> Dict:
         """
         BTC Trend Filter
+        Использует кэш для оптимизации при 200+ парах
         
         For LONG:
         - BTC price > EMA200 (1H)
@@ -764,16 +768,18 @@ class MarketFilters:
         Returns:
             {'passed': bool, 'reason': str}
         """
+        from utils.cache import btc_cache
+        
         result = {
             'passed': False,
             'reason': ''
         }
         
         try:
-            # Get BTC 1H data
-            btc_df = await client.get_ohlcv('BTC/USDT', '1h', limit=250)
+            # Get BTC 1H data from cache
+            btc_df = await btc_cache.get_btc_ohlcv_1h(client)
             
-            if btc_df.empty or len(btc_df) < 200:
+            if btc_df is None or btc_df.empty or len(btc_df) < 200:
                 # If we can't get BTC data, allow signal (don't block)
                 result['passed'] = True
                 result['reason'] = "BTC data unavailable, filter skipped"
