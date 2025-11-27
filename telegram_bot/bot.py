@@ -69,6 +69,12 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("settimeframes", self.cmd_set_timeframes))
         self.app.add_handler(CommandHandler("settf", self.cmd_set_timeframes))  # Короткий вариант
         
+        # Команды для управления топ монетами
+        self.app.add_handler(CommandHandler("topcoins", self.cmd_top_coins))
+        self.app.add_handler(CommandHandler("top", self.cmd_top_coins))  # Короткий вариант
+        self.app.add_handler(CommandHandler("refresh", self.cmd_refresh_coins))  # Принудительное обновление
+        self.app.add_handler(CommandHandler("pairs", self.cmd_list_pairs))  # Показать текущий список
+        
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         
@@ -81,7 +87,7 @@ class TelegramBot:
             print(f"[DEBUG] Unknown command received: {command}")
             await update.message.reply_text(f"Unknown command: {command}")
         
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|help)"), unknown_command))
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
@@ -626,6 +632,136 @@ class TelegramBot:
             await update.message.reply_text(f"Error: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    @admin_only
+    async def cmd_top_coins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать информацию о топ монетах"""
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            from utils.top_coins import TopCoinsService
+            
+            # Получаем информацию о кэше
+            cache_info = TopCoinsService.get_cache_info()
+            
+            # Текущие торговые пары
+            current_pairs = ConfigManager.get_trading_pairs()
+            
+            # Формируем сообщение
+            last_update = cache_info['last_update']
+            if last_update:
+                last_update_str = last_update.strftime('%Y-%m-%d %H:%M UTC')
+            else:
+                last_update_str = "Never"
+            
+            next_update = cache_info['next_update']
+            if next_update:
+                next_update_str = next_update.strftime('%Y-%m-%d %H:%M UTC')
+            else:
+                next_update_str = "Soon"
+            
+            message = f"""
+📊 *Top Coins Status*
+
+🔄 *Auto-update:* Enabled (every hour)
+📅 *Last update:* {last_update_str}
+⏰ *Next update:* {next_update_str}
+
+📈 *Current pairs:* {len(current_pairs)}
+✅ *Cache valid:* {'Yes' if cache_info['is_valid'] else 'No'}
+
+💡 *Commands:*
+• `/pairs` - show current pairs list
+• `/refresh` - force update top 100
+• `/setpairs` - manual set pairs
+"""
+            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
+    
+    @admin_only
+    async def cmd_refresh_coins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Принудительное обновление списка топ монет"""
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            await update.message.reply_text("🔄 Updating top 100 coins from CoinGecko...")
+            
+            from utils.top_coins import update_trading_pairs_auto, TopCoinsService
+            
+            # Принудительное обновление
+            success = await update_trading_pairs_auto(limit=100)
+            
+            if success:
+                pairs = ConfigManager.get_trading_pairs()
+                
+                # Показываем первые 20 пар
+                pairs_preview = ', '.join(pairs[:20])
+                if len(pairs) > 20:
+                    pairs_preview += f"\n... +{len(pairs) - 20} more"
+                
+                message = f"""
+✅ *Top coins updated successfully!*
+
+📊 *Total pairs:* {len(pairs)}
+
+🏆 *Top 20:*
+{pairs_preview}
+
+💡 Use `/pairs` to see full list
+"""
+                await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text("❌ Failed to update. Using cached data.")
+                
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
+    
+    @admin_only
+    async def cmd_list_pairs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать полный список торговых пар"""
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            pairs = ConfigManager.get_trading_pairs()
+            
+            if not pairs:
+                await update.message.reply_text("❌ No trading pairs configured")
+                return
+            
+            # Разбиваем на группы по 50 для читаемости
+            chunks = [pairs[i:i+50] for i in range(0, len(pairs), 50)]
+            
+            # Первое сообщение с заголовком
+            header = f"📋 *Trading Pairs ({len(pairs)} total)*\n\n"
+            
+            for idx, chunk in enumerate(chunks):
+                # Формируем список с номерами
+                numbered_pairs = [f"{i+1+idx*50}. {pair}" for i, pair in enumerate(chunk)]
+                pairs_text = '\n'.join(numbered_pairs)
+                
+                if idx == 0:
+                    message = header + f"```\n{pairs_text}\n```"
+                else:
+                    message = f"```\n{pairs_text}\n```"
+                
+                try:
+                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                except:
+                    # Если Markdown не работает, отправляем без форматирования
+                    await update.message.reply_text(pairs_text)
+                
+                # Небольшая пауза между сообщениями
+                if idx < len(chunks) - 1:
+                    import asyncio
+                    await asyncio.sleep(0.5)
+            
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
     
     def run(self):
         """Запуск бота"""
