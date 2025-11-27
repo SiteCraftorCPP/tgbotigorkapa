@@ -496,38 +496,78 @@ class TelegramBot:
     @admin_only
     async def cmd_set_pairs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Установка торгуемых пар"""
-        print(f"[DEBUG] cmd_set_pairs FUNCTION CALLED!")
         try:
-            print(f"[DEBUG] cmd_set_pairs called, args: {context.args}")
             user_id = str(update.effective_user.id)
             lang = get_user_lang(user_id)
-            print(f"[DEBUG] User ID: {user_id}, Lang: {lang}")
             
+            # Если нет аргументов, показываем текущие пары
             if not context.args:
                 current = ConfigManager.get_trading_pairs()
-                message = f"{t('current_pairs', lang, pairs=', '.join(current))}\n\n{t('pairs_help', lang)}"
+                pairs_str = ', '.join(current[:20])  # Показываем первые 20
+                if len(current) > 20:
+                    pairs_str += f"\n... и ещё {len(current) - 20} пар"
+                
+                message = f"{t('current_pairs', lang, pairs=pairs_str)}\n\n{t('pairs_help', lang)}"
                 try:
                     await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
                 except:
                     await update.message.reply_text(message)
                 return
             
-            pairs = [p.strip() for p in context.args]
-            print(f"[DEBUG] Setting pairs: {pairs}")
-            success = ConfigManager.set_trading_pairs(pairs)
-            print(f"[DEBUG] Save result: {success}")
+            # Получаем пары из аргументов
+            pairs = [p.strip().upper() for p in context.args if p.strip()]
+            
+            # Если пары переданы через аргументы, но их мало, пробуем получить из текста сообщения
+            if len(pairs) < 2 and update.message.text:
+                # Пробуем извлечь пары из текста после команды
+                text = update.message.text
+                if '/setpairs' in text.lower() or '/setp' in text.lower():
+                    # Убираем команду и разбиваем по пробелам/запятым
+                    text_after_cmd = text.split(maxsplit=1)[1] if len(text.split()) > 1 else ""
+                    if text_after_cmd:
+                        # Разбиваем по пробелам, запятым, переносам строк
+                        pairs = [p.strip().upper() for p in text_after_cmd.replace(',', ' ').replace('\n', ' ').split() if p.strip() and '/' in p]
+            
+            if not pairs:
+                await update.message.reply_text(f"{t('error', lang)}: No pairs specified. Use: `/setpairs BTC/USDT ETH/USDT`", parse_mode=ParseMode.MARKDOWN)
+                return
+            
+            # Фильтруем только валидные пары (должны содержать /)
+            valid_pairs = [p for p in pairs if '/' in p and len(p.split('/')) == 2]
+            
+            if not valid_pairs:
+                await update.message.reply_text(f"{t('error', lang)}: Invalid pair format. Use: `BTC/USDT ETH/USDT`", parse_mode=ParseMode.MARKDOWN)
+                return
+            
+            # Убираем дубликаты, сохраняя порядок
+            unique_pairs = list(dict.fromkeys(valid_pairs))
+            
+            # Сохраняем пары
+            success = ConfigManager.set_trading_pairs(unique_pairs)
             
             if success:
-                await update.message.reply_text(t('pairs_updated', lang, pairs=', '.join(pairs)))
-                await self.send_admin_message(t('pairs_changed', lang, pairs=', '.join(pairs)))
+                # Формируем сообщение с подтверждением
+                pairs_preview = ', '.join(unique_pairs[:10])
+                if len(unique_pairs) > 10:
+                    pairs_preview += f"\n... и ещё {len(unique_pairs) - 10} пар"
+                
+                confirm_message = f"✅ {t('pairs_updated', lang, pairs=pairs_preview)}\n\n📊 Всего установлено: {len(unique_pairs)} пар"
+                
+                await update.message.reply_text(confirm_message, parse_mode=ParseMode.MARKDOWN)
+                
+                # Отправляем уведомление админам
+                admin_message = f"⚙️ {t('pairs_changed', lang, pairs=f'{len(unique_pairs)} pairs')}\nПервые 5: {', '.join(unique_pairs[:5])}"
+                await self.send_admin_message(admin_message)
             else:
-                await update.message.reply_text(t('error', lang) + ": Failed to save pairs")
+                await update.message.reply_text(f"{t('error', lang)}: Failed to save pairs to database")
+                
         except Exception as e:
-            print(f"[ERROR] Exception in cmd_set_pairs: {e}")
+            from utils.logger import log_error
+            log_error(f"Error in cmd_set_pairs: {e}", "cmd_set_pairs")
             import traceback
             traceback.print_exc()
             try:
-                await update.message.reply_text(f"Error: {str(e)}")
+                await update.message.reply_text(f"❌ Error: {str(e)}")
             except:
                 pass
     
