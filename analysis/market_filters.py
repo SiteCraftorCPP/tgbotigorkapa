@@ -66,11 +66,11 @@ class MarketFilters:
     ANTI_PUMP_LOOKBACK_CANDLES = 6  # 30 минут на 5m = 6 свечей
     
     # 14. Time Guard
-    TIME_GUARD_MINUTES = 5  # первые 5 минут каждого часа
+    TIME_GUARD_MINUTES = 2  # первые 2 минуты каждого часа (ослаблено с 5 до 2)
     
-    # 15. Time Session Filter
-    FORBIDDEN_HOURS_START = 23  # 23:00 UTC
-    FORBIDDEN_HOURS_END = 5     # 05:00 UTC
+    # 15. Time Session Filter (ОТКЛЮЧЕН - слишком строгий)
+    FORBIDDEN_HOURS_START = 25  # Отключено (25 > 24, никогда не сработает)
+    FORBIDDEN_HOURS_END = -1    # Отключено
     
     # Storage for paused coins
     _paused_coins = {}  # {ticker: pause_until_timestamp}

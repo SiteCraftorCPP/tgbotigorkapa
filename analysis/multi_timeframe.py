@@ -51,21 +51,26 @@ class MultiTimeframeAnalysis:
         # Разрешаем сигнал если:
         # 1. Тренд совпадает на обоих ТФ
         # 2. На старшем ТФ нейтральный тренд (score близок к 0)
+        # 3. На старшем ТФ слабый тренд (score между -30 и +30) - ОСЛАБЛЕНО
         higher_score = trend_higher['score']
-        is_neutral = abs(higher_score) < 20  # Нейтральный тренд если score между -20 и +20
+        is_neutral = abs(higher_score) < 30  # Нейтральный тренд если score между -30 и +30 (было 20)
         
         aligned = (higher_direction == lower_direction) or is_neutral
         
         # Дополнительная проверка: на старшем ТФ цена должна быть выше EMA200 для лонга
-        # Но если тренд нейтральный, пропускаем эту проверку
+        # Но если тренд нейтральный или слабый, пропускаем эту проверку
         last_higher = ta_higher.df.iloc[-1]
         
         if is_neutral:
             strong_trend = True  # Нейтральный тренд разрешён
         elif higher_direction == 'LONG':
-            strong_trend = last_higher['close'] > last_higher['ema_200']
+            # Ослаблено: разрешаем если цена близка к EMA200 (в пределах 2%)
+            price_ema_diff = (last_higher['close'] - last_higher['ema_200']) / last_higher['ema_200']
+            strong_trend = last_higher['close'] > last_higher['ema_200'] or price_ema_diff > -0.02
         else:
-            strong_trend = last_higher['close'] < last_higher['ema_200']
+            # Ослаблено: разрешаем если цена близка к EMA200 (в пределах 2%)
+            price_ema_diff = (last_higher['ema_200'] - last_higher['close']) / last_higher['ema_200']
+            strong_trend = last_higher['close'] < last_higher['ema_200'] or price_ema_diff > -0.02
         
         return {
             'aligned': aligned and strong_trend,
@@ -92,20 +97,26 @@ class MultiTimeframeAnalysis:
         prev = ta.df.iloc[-2]
         
         if direction == 'LONG':
-            # Цена откатила к EMA50 или нижней границе канала
-            near_ema50 = abs(last['close'] - last['ema_50']) / last['close'] < 0.01
+            # Ослабленный pullback: цена в пределах 2% от EMA50 или RSI показывает возможность входа
+            near_ema50 = abs(last['close'] - last['ema_50']) / last['close'] < 0.02  # Увеличено с 1% до 2%
             
-            # RSI в зоне перепроданности но уже выходит
-            rsi_oversold_exit = 30 < last['rsi'] < 45 and last['rsi'] > prev['rsi']
+            # RSI в зоне перепроданности или выходит из неё
+            rsi_oversold_exit = (30 < last['rsi'] < 50 and last['rsi'] > prev['rsi']) or (last['rsi'] < 40)  # Расширена зона
             
-            return near_ema50 or rsi_oversold_exit
+            # Дополнительно: цена выше EMA50 но не слишком далеко (тренд есть, но есть место для входа)
+            price_above_ema = last['close'] > last['ema_50'] and (last['close'] - last['ema_50']) / last['ema_50'] < 0.03
+            
+            return near_ema50 or rsi_oversold_exit or price_above_ema
         
         else:  # SHORT
-            # Цена откатила к EMA50 или верхней границе канала
-            near_ema50 = abs(last['close'] - last['ema_50']) / last['close'] < 0.01
+            # Ослабленный pullback: цена в пределах 2% от EMA50 или RSI показывает возможность входа
+            near_ema50 = abs(last['close'] - last['ema_50']) / last['close'] < 0.02  # Увеличено с 1% до 2%
             
-            # RSI в зоне перекупленности но уже выходит
-            rsi_overbought_exit = 55 < last['rsi'] < 70 and last['rsi'] < prev['rsi']
+            # RSI в зоне перекупленности или выходит из неё
+            rsi_overbought_exit = (50 < last['rsi'] < 70 and last['rsi'] < prev['rsi']) or (last['rsi'] > 60)  # Расширена зона
             
-            return near_ema50 or rsi_overbought_exit
+            # Дополнительно: цена ниже EMA50 но не слишком далеко (тренд есть, но есть место для входа)
+            price_below_ema = last['close'] < last['ema_50'] and (last['ema_50'] - last['close']) / last['ema_50'] < 0.03
+            
+            return near_ema50 or rsi_overbought_exit or price_below_ema
 
