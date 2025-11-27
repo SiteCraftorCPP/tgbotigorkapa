@@ -24,9 +24,18 @@ TRANSLATIONS = {
 /enable - Enable bot
 /disable - Disable bot
 
+🔧 Trading pairs:
+/setpairs - Manual set pairs
+/pairs - Show current pairs list
+/topcoins - Top 100 coins status
+/refresh - Force update top 100
+
 🔧 Settings:
-/setpairs - Trading pairs
 /settimeframes - Timeframes
+
+🗄️ Database:
+/dbstats - Database statistics
+/cleanup - Clean old signals
 """,
         'cmd_help': 'See /start for all commands',
         
@@ -185,9 +194,18 @@ TRANSLATIONS = {
 /enable - Включить бота
 /disable - Выключить бота
 
-🔧 Настройка параметров:
-/setpairs - Торгуемые пары
+🔧 Торговые пары:
+/setpairs - Ручная установка пар
+/pairs - Показать текущий список
+/topcoins - Статус топ-100 монет
+/refresh - Принудительное обновление
+
+🔧 Настройки:
 /settimeframes - Таймфреймы
+
+🗄️ База данных:
+/dbstats - Статистика БД
+/cleanup - Очистка старых сигналов
 """,
         'cmd_help': 'См. /start для всех команд',
         

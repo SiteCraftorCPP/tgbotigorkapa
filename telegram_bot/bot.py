@@ -294,11 +294,22 @@ class TelegramBot:
             await update.message.reply_text(message.strip())
     
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /help"""
+        """Команда /help - показывает все доступные команды"""
         user_id = str(update.effective_user.id)
         lang = get_user_lang(user_id)
         
-        await update.message.reply_text(t('cmd_help', lang))
+        # Проверяем, является ли пользователь админом
+        is_admin = AdminManager.is_admin(user_id)
+        
+        if is_admin:
+            message = t('cmd_start_admin', lang)
+        else:
+            message = t('cmd_start', lang)
+        
+        try:
+            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+        except:
+            await update.message.reply_text(message.strip())
     
     async def cmd_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /language - выбор языка"""
