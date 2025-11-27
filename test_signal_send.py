@@ -65,7 +65,6 @@ async def test_signal_send():
     print(f"\n[3] Инициализация Telegram бота...")
     try:
         telegram_bot = TelegramBot()
-        await telegram_bot.initialize()
         print("   ✅ Бот инициализирован")
     except Exception as e:
         print(f"   ❌ Ошибка инициализации: {e}")
@@ -97,7 +96,8 @@ async def test_signal_send():
     finally:
         # Закрытие бота
         try:
-            await telegram_bot.shutdown()
+            if hasattr(telegram_bot, 'app'):
+                await telegram_bot.app.shutdown()
         except:
             pass
 
