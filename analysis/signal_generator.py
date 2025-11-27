@@ -162,6 +162,10 @@ class SignalGenerator:
     def _calculate_levels(self, direction: str, price: float, atr: float, levels: dict) -> Optional[Dict]:
         """Расчёт уровней входа, стопа и 4 тейк-профитов"""
         
+        # Валидация входных данных
+        if price <= 0 or atr <= 0:
+            return None
+        
         # Entry = текущая цена или лимитный ордер чуть лучше
         entry = price
         
@@ -169,8 +173,16 @@ class SignalGenerator:
             # Stop loss на 2 ATR ниже (ультраконсервативно)
             stop = entry - (atr * 2.0)
             
+            # Проверка, что stop не отрицательный
+            if stop <= 0:
+                return None
+            
             # Расчёт дистанции для TP (RR минимум 1.25:1)
             stop_distance = entry - stop
+            
+            # Проверка, что stop_distance > 0
+            if stop_distance <= 0:
+                return None
             
             # 4 уровня TP с увеличивающейся дистанцией
             tp1 = entry + (stop_distance * 1.5)  # RR 1.5:1
@@ -193,10 +205,18 @@ class SignalGenerator:
             
             stop_distance = stop - entry
             
+            # Проверка, что stop_distance > 0
+            if stop_distance <= 0:
+                return None
+            
             tp1 = entry - (stop_distance * 1.5)
             tp2 = entry - (stop_distance * 2.5)
             tp3 = entry - (stop_distance * 3.5)
             tp4 = entry - (stop_distance * 5.0)
+            
+            # Проверка, что TP не отрицательные
+            if tp4 <= 0:
+                return None
             
             # Проверка, что не пробиваем поддержку
             if tp4 < levels['support'] * 0.98:
@@ -206,18 +226,33 @@ class SignalGenerator:
                 tp2 = entry - (total_distance * 0.50)
                 tp3 = entry - (total_distance * 0.75)
         
-        # Валидация
+        # Валидация уровней
         if direction == 'LONG':
             if stop >= entry or tp1 <= entry or tp4 <= tp3 <= tp2 <= tp1:
                 return None
+            # Проверка, что все уровни разные
+            if stop == entry or tp1 == entry or tp2 == tp1 or tp3 == tp2 or tp4 == tp3:
+                return None
         else:
             if stop <= entry or tp1 >= entry or tp4 >= tp3 >= tp2 >= tp1:
+                return None
+            # Проверка, что все уровни разные
+            if stop == entry or tp1 == entry or tp2 == tp1 or tp3 == tp2 or tp4 == tp3:
                 return None
         
         # Проверка минимального RR (≥ 1.25:1 для TP1)
         risk = abs(entry - stop)
         reward = abs(tp1 - entry)
+        
+        if risk <= 0 or reward <= 0:
+            return None
+        
         if reward / risk < self.MIN_RR_RATIO:
+            return None
+        
+        # Финальная проверка: все уровни должны быть разными
+        levels_list = [entry, stop, tp1, tp2, tp3, tp4]
+        if len(set(levels_list)) < len(levels_list):
             return None
         
         return {

@@ -176,6 +176,23 @@ class CryptoSignalBot:
         """Сохранение сигнала в БД и отправка в Telegram"""
         db = SessionLocal()
         try:
+            # Валидация уровней сигнала перед сохранением
+            entry = signal.get('entry_price', 0)
+            stop = signal.get('stop_loss', 0)
+            tp1 = signal.get('take_profit_1', 0)
+            tp2 = signal.get('take_profit_2', 0)
+            tp3 = signal.get('take_profit_3', 0)
+            
+            # Проверка, что все уровни разные и валидные
+            if entry <= 0 or stop <= 0 or tp1 <= 0 or tp2 <= 0 or tp3 <= 0:
+                log_info(f"Invalid signal levels for {signal.get('ticker')}: entry={entry}, stop={stop}, tp1={tp1}")
+                return
+            
+            # Проверка, что уровни разные
+            if entry == stop or entry == tp1 or stop == tp1 or tp1 == tp2 or tp2 == tp3:
+                log_info(f"Duplicate signal levels for {signal.get('ticker')}: all levels must be different")
+                return
+            
             # Проверка дубликатов
             recent_signal = db.query(Signal).filter(
                 Signal.ticker == signal['ticker'],
