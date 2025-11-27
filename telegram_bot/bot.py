@@ -145,25 +145,22 @@ class TelegramBot:
         
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
         
-        # Расчёт потенциальной прибыли для всех 4 TP
+        # Расчёт потенциальной прибыли для TP1, TP2, TP3 (TP4 убран)
         entry = signal['entry_price']
         tp1 = signal['take_profit_1']
         tp2 = signal['take_profit_2']
         tp3 = signal['take_profit_3']
-        tp4 = signal['take_profit_4']
         stop = signal['stop_loss']
         
         if signal['direction'] == 'LONG':
             profit_tp1 = ((tp1 - entry) / entry) * 100
             profit_tp2 = ((tp2 - entry) / entry) * 100
             profit_tp3 = ((tp3 - entry) / entry) * 100
-            profit_tp4 = ((tp4 - entry) / entry) * 100
             risk_percent = ((entry - stop) / entry) * 100
         else:
             profit_tp1 = ((entry - tp1) / entry) * 100
             profit_tp2 = ((entry - tp2) / entry) * 100
             profit_tp3 = ((entry - tp3) / entry) * 100
-            profit_tp4 = ((entry - tp4) / entry) * 100
             risk_percent = ((stop - entry) / entry) * 100
         
         # Форматирование цен с учётом их величины
@@ -172,7 +169,6 @@ class TelegramBot:
         tp1_str = self._format_price(tp1)
         tp2_str = self._format_price(tp2)
         tp3_str = self._format_price(tp3)
-        tp4_str = self._format_price(tp4)
         
         # Сигналы всегда на английском для канала
         message = f"""
@@ -184,8 +180,7 @@ class TelegramBot:
 🎯 Take Profit
 ├ TP1: {tp1_str} (+{profit_tp1:.1f}%)
 ├ TP2: {tp2_str} (+{profit_tp2:.1f}%)
-├ TP3: {tp3_str} (+{profit_tp3:.1f}%)
-└ TP4: {tp4_str} (+{profit_tp4:.1f}%)
+└ TP3: {tp3_str} (+{profit_tp3:.1f}%)
 
 ⚠️ After TP1 - move SL to breakeven!
 """
