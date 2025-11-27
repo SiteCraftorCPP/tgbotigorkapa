@@ -31,7 +31,7 @@ class MarketFilters:
     LIQUIDITY_PRICE_RANGE = 0.003  # within 0.3% of price
     
     # 5. ATR volatility filter
-    ATR_MIN_PERCENT = 0.20  # ≥ 0.20%
+    ATR_MIN_PERCENT = 0.10  # ≥ 0.10% (ослаблено с 0.20%)
     ATR_MAX_PERCENT = 6.0   # ≤ 6.0%
     
     # 6. Gap filter (Open→Close)
@@ -65,8 +65,8 @@ class MarketFilters:
     ANTI_PUMP_THRESHOLD = 7.0  # > ±7% за 30 минут
     ANTI_PUMP_LOOKBACK_CANDLES = 6  # 30 минут на 5m = 6 свечей
     
-    # 14. Time Guard
-    TIME_GUARD_MINUTES = 2  # первые 2 минуты каждого часа (ослаблено с 5 до 2)
+    # 14. Time Guard (ОТКЛЮЧЕН)
+    TIME_GUARD_MINUTES = 0  # отключено (было 2 минуты)
     
     # 15. Time Session Filter (ОТКЛЮЧЕН - слишком строгий)
     FORBIDDEN_HOURS_START = 25  # Отключено (25 > 24, никогда не сработает)

@@ -221,8 +221,8 @@ class SignalGenerator:
             # Расчёт дистанции для TP
             stop_distance = entry - stop
             
-            # Проверка минимальной дистанции (0.5% от цены минимум)
-            min_distance = entry * 0.005
+            # Проверка минимальной дистанции (0.25% от цены минимум - ослаблено с 0.5%)
+            min_distance = entry * 0.0025
             if stop_distance < min_distance:
                 logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
                 return None
@@ -248,8 +248,8 @@ class SignalGenerator:
             
             stop_distance = stop - entry
             
-            # Проверка минимальной дистанции (0.5% от цены минимум)
-            min_distance = entry * 0.005
+            # Проверка минимальной дистанции (0.25% от цены минимум - ослаблено с 0.5%)
+            min_distance = entry * 0.0025
             if stop_distance < min_distance:
                 logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
                 return None
