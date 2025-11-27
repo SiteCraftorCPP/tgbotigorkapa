@@ -75,6 +75,10 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("refresh", self.cmd_refresh_coins))  # Принудительное обновление
         self.app.add_handler(CommandHandler("pairs", self.cmd_list_pairs))  # Показать текущий список
         
+        # Команды для управления БД
+        self.app.add_handler(CommandHandler("dbstats", self.cmd_db_stats))  # Статистика БД
+        self.app.add_handler(CommandHandler("cleanup", self.cmd_cleanup_db))  # Очистка БД
+        
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         
@@ -87,7 +91,7 @@ class TelegramBot:
             print(f"[DEBUG] Unknown command received: {command}")
             await update.message.reply_text(f"Unknown command: {command}")
         
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|help)"), unknown_command))
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|dbstats|cleanup|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
@@ -759,6 +763,91 @@ class TelegramBot:
                 if idx < len(chunks) - 1:
                     import asyncio
                     await asyncio.sleep(0.5)
+            
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
+    
+    @admin_only
+    async def cmd_db_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать статистику базы данных"""
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            from utils.db_cleanup import DatabaseCleanup
+            
+            stats = DatabaseCleanup.get_db_stats()
+            
+            oldest_str = stats['oldest_date'].strftime('%Y-%m-%d %H:%M') if stats['oldest_date'] else "N/A"
+            
+            message = f"""
+📊 *Database Statistics*
+
+📈 *Signals:*
+├ Total: {stats['total']}
+├ Active: {stats['active']}
+├ Closed: {stats['closed']}
+└ Last 24h: {stats['signals_24h']}
+
+📅 *Oldest signal:* {oldest_str}
+
+🗑️ *Auto-cleanup:* Every 24 hours
+📦 *Retention:* 30 days
+
+💡 Use `/cleanup` to manually clean old signals
+"""
+            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
+            
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
+    
+    @admin_only
+    async def cmd_cleanup_db(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ручная очистка старых сигналов"""
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            # Проверяем аргумент (количество дней)
+            days = 30  # По умолчанию
+            if context.args:
+                try:
+                    days = int(context.args[0])
+                    if days < 1:
+                        days = 1
+                    if days > 365:
+                        days = 365
+                except:
+                    pass
+            
+            await update.message.reply_text(f"🗑️ Cleaning signals older than {days} days...")
+            
+            from utils.db_cleanup import DatabaseCleanup
+            
+            # Получаем статистику до очистки
+            stats_before = DatabaseCleanup.get_db_stats()
+            
+            # Очищаем
+            deleted = DatabaseCleanup.cleanup_old_signals(days=days)
+            
+            # Оптимизируем БД
+            if deleted > 0:
+                DatabaseCleanup.vacuum_database()
+            
+            # Получаем статистику после
+            stats_after = DatabaseCleanup.get_db_stats()
+            
+            message = f"""
+✅ *Cleanup Complete*
+
+🗑️ *Deleted:* {deleted} old signals
+
+📊 *Before:* {stats_before['total']} signals
+📊 *After:* {stats_after['total']} signals
+
+💾 Database optimized!
+"""
+            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
             
         except Exception as e:
             await update.message.reply_text(f"Error: {str(e)}")

@@ -9,6 +9,7 @@ from database.config_manager import ConfigManager
 from utils.logger import logger, log_signal, log_error, log_info, log_warning, log_filter_summary
 from utils.cache import btc_cache, api_rate_limiter
 from utils.top_coins import TopCoinsService, update_trading_pairs_auto
+from utils.db_cleanup import DatabaseCleanup, run_scheduled_cleanup
 import config
 import time
 
@@ -21,6 +22,7 @@ class CryptoSignalBot:
     MAX_CONCURRENT_TASKS = 30  # Максимум одновременных задач
     ANALYSIS_INTERVAL_CYCLES = 120  # Интервал анализа (120 циклов * 5 сек = 10 минут)
     TOP_COINS_UPDATE_CYCLES = 720  # Обновление топ монет каждый час (720 * 5 сек = 3600 сек)
+    DB_CLEANUP_CYCLES = 17280  # Очистка БД раз в сутки (17280 * 5 сек = 86400 сек)
     
     def __init__(self):
         self.xt_client = XTClient()
@@ -470,6 +472,11 @@ class CryptoSignalBot:
                         pairs = ConfigManager.get_trading_pairs()
                         log_info(f"✅ Top coins updated: {len(pairs)} pairs")
                     log_filter_summary()
+                
+                # Очистка старых сигналов РАЗ В СУТКИ (17280 циклов * 5 сек = 86400 сек)
+                if cycle_count % self.DB_CLEANUP_CYCLES == 0 and cycle_count > 0:
+                    log_info("🗑️ Running scheduled database cleanup...")
+                    await run_scheduled_cleanup()
                 
                 cycle_count += 1
                 
