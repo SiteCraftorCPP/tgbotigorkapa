@@ -194,3 +194,5 @@ class RateLimiter:
 # Глобальный rate limiter
 api_rate_limiter = RateLimiter(max_concurrent=30, requests_per_second=20)
 
+
+

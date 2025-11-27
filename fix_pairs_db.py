@@ -78,3 +78,5 @@ if __name__ == "__main__":
     if len(pairs) > 0:
         print(f"Первые 10: {pairs[:10]}")
 
+
+
