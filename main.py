@@ -246,12 +246,12 @@ class CryptoSignalBot:
             await self.telegram_bot.send_signal(signal)
             
             log_signal(signal)
-                            
+            
         except Exception as e:
             log_error(str(e), f"saving signal {signal.get('ticker', 'unknown')}")
             db.rollback()
-                        finally:
-                            db.close()
+        finally:
+            db.close()
                 
     async def analyze_market(self):
         """
