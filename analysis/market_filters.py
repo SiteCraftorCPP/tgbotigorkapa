@@ -301,9 +301,9 @@ class MarketFilters:
             change_percent = abs((current_price - price_5min_ago) / price_5min_ago) * 100
             
             if change_percent > MarketFilters.BTC_VOLATILITY_THRESHOLD:
-                # Устанавливаем паузу на 10 минут
+                # Устанавливаем паузу на 5 минут
                 MarketFilters._btc_pause_until = datetime.utcnow() + timedelta(minutes=MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES)
-                result['reason'] = f"BTC moved {change_percent:.2f}% in 5 min > {MarketFilters.BTC_VOLATILITY_THRESHOLD}% (10 min pause set)"
+                result['reason'] = f"BTC moved {change_percent:.2f}% in 5 min > {MarketFilters.BTC_VOLATILITY_THRESHOLD}% ({MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES} min pause set)"
                 return result
             
             result['passed'] = True
