@@ -170,7 +170,7 @@ class TopCoinsService:
                 'symbol': symbol.upper(),
                 'pair': pair,
                 'rank': rank,
-                'in_top_100': rank <= 100
+                'in_top_200': rank <= 200
             }
         
         return None

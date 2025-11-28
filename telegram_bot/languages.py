@@ -27,8 +27,8 @@ TRANSLATIONS = {
 🔧 Trading pairs:
 /setpairs - Manual set pairs
 /pairs - Show current pairs list
-/topcoins - Top 100 coins status
-/refresh - Force update top 100
+/topcoins - Top 200 coins status
+/refresh - Force update top 200
 
 🔧 Settings:
 /settimeframes - Timeframes
@@ -197,7 +197,7 @@ TRANSLATIONS = {
 🔧 Торговые пары:
 /setpairs - Ручная установка пар
 /pairs - Показать текущий список
-/topcoins - Статус топ-100 монет
+/topcoins - Статус топ-200 монет
 /refresh - Принудительное обновление
 
 🔧 Настройки:

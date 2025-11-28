@@ -323,7 +323,7 @@ class ConservativeFilters:
             channel_check = ConservativeFilters.check_channel_position(df, entry, atr_percent, direction)
             if not channel_check['passed']:
                 result['reasons'].append(channel_check['reason'])
-            return result
+                return result  # Выходим только если фильтр НЕ прошёл!
         
         # 8. BTC/ETH корреляция
         if not await ConservativeFilters.check_btc_eth_correlation(ticker, direction, client):

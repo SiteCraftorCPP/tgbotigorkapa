@@ -703,7 +703,7 @@ class TelegramBot:
 
 💡 *Commands:*
 • `/pairs` - show current pairs list
-• `/refresh` - force update top 100
+• `/refresh` - force update top 200
 • `/setpairs` - manual set pairs
 """
             await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
@@ -718,12 +718,12 @@ class TelegramBot:
             user_id = str(update.effective_user.id)
             lang = get_user_lang(user_id)
             
-            await update.message.reply_text("🔄 Updating top 100 coins from CoinGecko...")
+            await update.message.reply_text("🔄 Updating top 200 coins from CoinGecko...")
             
             from utils.top_coins import update_trading_pairs_auto, TopCoinsService
             
             # Принудительное обновление
-            success = await update_trading_pairs_auto(limit=100)
+            success = await update_trading_pairs_auto(limit=200)
             
             if success:
                 pairs = ConfigManager.get_trading_pairs()
