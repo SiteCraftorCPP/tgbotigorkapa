@@ -11,20 +11,33 @@ def check_blocking_signals():
     db = SessionLocal()
     
     try:
-        # 1. Активные сигналы (блокируют новые)
-        active_signals = db.query(Signal).filter(
-            Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
+        # 1. Активные сигналы (блокируют новые) - только WAITING и IN_POSITION
+        # TP1_HIT/TP2_HIT/TP3_HIT НЕ блокируют новые сигналы
+        blocking_signals = db.query(Signal).filter(
+            Signal.status.in_(['WAITING', 'IN_POSITION'])
         ).all()
         
-        print(f"\n🔴 АКТИВНЫЕ СИГНАЛЫ (блокируют новые): {len(active_signals)}")
+        print(f"\n🔴 БЛОКИРУЮЩИЕ СИГНАЛЫ (WAITING/IN_POSITION): {len(blocking_signals)}")
         print("=" * 80)
         
-        if active_signals:
-            for sig in active_signals:
+        if blocking_signals:
+            for sig in blocking_signals:
                 age = datetime.utcnow() - sig.created_at
                 print(f"  • {sig.ticker:15} | {sig.status:12} | Создан: {sig.created_at.strftime('%Y-%m-%d %H:%M')} ({age.days}д {age.seconds//3600}ч назад)")
         else:
-            print("  ✅ Нет активных сигналов")
+            print("  ✅ Нет блокирующих сигналов")
+        
+        # Показываем также TP1_HIT/TP2_HIT/TP3_HIT для информации (но они НЕ блокируют)
+        tp_signals = db.query(Signal).filter(
+            Signal.status.in_(['TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
+        ).all()
+        
+        if tp_signals:
+            print(f"\nℹ️  ЧАСТИЧНО ЗАКРЫТЫЕ СИГНАЛЫ (TP1_HIT/TP2_HIT/TP3_HIT - НЕ блокируют): {len(tp_signals)}")
+            print("=" * 80)
+            for sig in tp_signals:
+                age = datetime.utcnow() - sig.created_at
+                print(f"  • {sig.ticker:15} | {sig.status:12} | Создан: {sig.created_at.strftime('%Y-%m-%d %H:%M')} ({age.days}д {age.seconds//3600}ч назад)")
         
         # 2. Недавно закрытые сигналы (cooldown 1 час)
         cooldown_time = datetime.utcnow() - timedelta(hours=1)
