@@ -147,7 +147,13 @@ class ConservativeFilters:
         
         if direction == 'LONG':
             # Для лонга проверяем ближайшее сопротивление сверху
-            resistances = recent[recent['high'] == recent['high'].rolling(window, center=True).max()]['high'].values
+            # Используем rolling без center=True для корректной работы на границах
+            rolling_max = recent['high'].rolling(window=window, min_periods=1).max()
+            # Находим локальные максимумы (где high == rolling_max и это не граница)
+            resistances = []
+            for i in range(window, len(recent) - window):
+                if recent.iloc[i]['high'] == rolling_max.iloc[i]:
+                    resistances.append(recent.iloc[i]['high'])
             
             if len(resistances) == 0:
                 return True
@@ -155,9 +161,15 @@ class ConservativeFilters:
             nearest_resistance = min([r for r in resistances if r > entry], default=entry * 1.1)
             distance = nearest_resistance - entry
             
-        else:
+        else:  # SHORT
             # Для шорта проверяем ближайшую поддержку снизу
-            supports = recent[recent['low'] == recent['low'].rolling(window, center=True).min()]['low'].values
+            # Используем rolling без center=True для корректной работы на границах
+            rolling_min = recent['low'].rolling(window=window, min_periods=1).min()
+            # Находим локальные минимумы (где low == rolling_min и это не граница)
+            supports = []
+            for i in range(window, len(recent) - window):
+                if recent.iloc[i]['low'] == rolling_min.iloc[i]:
+                    supports.append(recent.iloc[i]['low'])
             
             if len(supports) == 0:
                 return True

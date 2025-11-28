@@ -64,13 +64,15 @@ class MultiTimeframeAnalysis:
         if is_neutral:
             strong_trend = True  # Нейтральный тренд разрешён
         elif higher_direction == 'LONG':
-            # Ослаблено: разрешаем если цена близка к EMA200 (в пределах 2%)
+            # Для LONG: цена должна быть ВЫШЕ EMA200 (или очень близко - в пределах 2% снизу)
             price_ema_diff = (last_higher['close'] - last_higher['ema_200']) / last_higher['ema_200']
-            strong_trend = last_higher['close'] > last_higher['ema_200'] or price_ema_diff > -0.02
-        else:
-            # Ослаблено: разрешаем если цена близка к EMA200 (в пределах 2%)
+            # Разрешаем если цена выше EMA200 ИЛИ если цена ниже но очень близко (в пределах 2%)
+            strong_trend = last_higher['close'] > last_higher['ema_200'] or (price_ema_diff > -0.02 and price_ema_diff <= 0)
+        else:  # SHORT
+            # Для SHORT: цена должна быть НИЖЕ EMA200 (или очень близко - в пределах 2% сверху)
             price_ema_diff = (last_higher['ema_200'] - last_higher['close']) / last_higher['ema_200']
-            strong_trend = last_higher['close'] < last_higher['ema_200'] or price_ema_diff > -0.02
+            # Разрешаем если цена ниже EMA200 ИЛИ если цена выше но очень близко (в пределах 2%)
+            strong_trend = last_higher['close'] < last_higher['ema_200'] or (price_ema_diff > -0.02 and price_ema_diff <= 0)
         
         return {
             'aligned': aligned and strong_trend,

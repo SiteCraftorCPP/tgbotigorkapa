@@ -181,7 +181,7 @@ class MarketFilters:
             return result
         
         # === NEW: Anti-Pump Filter (movement > ±7% in 30 min) ===
-        anti_pump = MarketFilters.check_anti_pump(df, ticker)
+        anti_pump = MarketFilters.check_anti_pump(df, ticker, timeframe)
         if not anti_pump['passed']:
             result['reason'] = anti_pump['reason']
             return result
@@ -316,9 +316,16 @@ class MarketFilters:
             return result
     
     @staticmethod
-    def check_anti_pump(df: pd.DataFrame, ticker: str) -> Dict:
+    def check_anti_pump(df: pd.DataFrame, ticker: str, timeframe: str) -> Dict:
         """
         Anti-Pump Filter: избегать монет с движением > ±7% за последние 30 минут
+        
+        Адаптивно работает для всех таймфреймов:
+        - 1m: 30 свечей
+        - 5m: 6 свечей
+        - 15m: 2 свечи
+        - 1h: 1 свеча (30 минут)
+        - 4h: 1 свеча (но это 4 часа, не 30 минут - пропускаем)
         
         Returns:
             {'passed': bool, 'reason': str}
@@ -328,14 +335,33 @@ class MarketFilters:
             'reason': ''
         }
         
-        if df.empty or len(df) < MarketFilters.ANTI_PUMP_LOOKBACK_CANDLES:
+        # Определяем количество свечей для 30 минут в зависимости от таймфрейма
+        timeframe_minutes = {
+            '1m': 1,
+            '5m': 5,
+            '15m': 15,
+            '1h': 60,
+            '4h': 240,
+            '1d': 1440
+        }
+        
+        tf_minutes = timeframe_minutes.get(timeframe, 5)
+        
+        # Для таймфреймов >= 1h проверяем только последнюю свечу (может быть больше 30 минут)
+        if tf_minutes >= 60:
+            lookback_candles = 1
+        else:
+            # Для меньших таймфреймов: 30 минут / длительность свечи
+            lookback_candles = max(1, int(30 / tf_minutes))
+        
+        if df.empty or len(df) < lookback_candles:
             result['passed'] = True
             return result
         
-        # Берём последние 6 свечей (30 минут на 5m)
-        recent = df.tail(MarketFilters.ANTI_PUMP_LOOKBACK_CANDLES)
+        # Берём последние N свечей (30 минут)
+        recent = df.tail(lookback_candles)
         
-        # Цена 30 минут назад и текущая
+        # Цена N свечей назад и текущая
         price_30min_ago = recent.iloc[0]['open']
         current_price = recent.iloc[-1]['close']
         
@@ -348,7 +374,8 @@ class MarketFilters:
         
         if abs(change_percent) > MarketFilters.ANTI_PUMP_THRESHOLD:
             direction = "pump" if change_percent > 0 else "dump"
-            result['reason'] = f"Anti-{direction} filter: {ticker} moved {change_percent:+.2f}% in 30 min > ±{MarketFilters.ANTI_PUMP_THRESHOLD}%"
+            actual_minutes = lookback_candles * tf_minutes
+            result['reason'] = f"Anti-{direction} filter: {ticker} moved {change_percent:+.2f}% in {actual_minutes} min > ±{MarketFilters.ANTI_PUMP_THRESHOLD}%"
             return result
         
         result['passed'] = True

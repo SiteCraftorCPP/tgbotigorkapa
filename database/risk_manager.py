@@ -40,6 +40,7 @@ class RiskManager:
             cooldown_time = datetime.utcnow() - timedelta(hours=RiskManager.COOLDOWN_HOURS)
             recent_signal = db.query(Signal).filter(
                 (Signal.ticker == ticker) | (Signal.ticker.like(f"{base_coin}/%")),
+                Signal.closed_at.isnot(None),  # Только закрытые сигналы
                 Signal.closed_at >= cooldown_time
             ).first()
             
