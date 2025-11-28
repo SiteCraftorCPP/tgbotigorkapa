@@ -87,6 +87,7 @@ class MultiTimeframeAnalysis:
     def check_pullback_opportunity(df: pd.DataFrame, direction: str) -> bool:
         """
         Проверка наличия pullback (коррекции к уровню)
+        Pullback к уровню (EMA50, RSI или S/R) с допуском ±0.5–1 ATR
         """
         
         if len(df) < 50:
@@ -97,28 +98,38 @@ class MultiTimeframeAnalysis:
         
         last = ta.df.iloc[-1]
         prev = ta.df.iloc[-2]
+        atr = last['atr']
+        current_price = last['close']
+        
+        # Допуск в ATR: от 0.5 до 1 ATR
+        tolerance_min = atr * 0.5
+        tolerance_max = atr * 1.0
         
         if direction == 'LONG':
-            # Ослабленный pullback: цена в пределах 2% от EMA50 или RSI показывает возможность входа
-            near_ema50 = abs(last['close'] - last['ema_50']) / last['close'] < 0.02  # Увеличено с 1% до 2%
+            # Pullback к EMA50 с допуском ±0.5–1 ATR
+            ema50_distance = abs(current_price - last['ema_50'])
+            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max or ema50_distance < tolerance_min
             
             # RSI в зоне перепроданности или выходит из неё
-            rsi_oversold_exit = (30 < last['rsi'] < 50 and last['rsi'] > prev['rsi']) or (last['rsi'] < 40)  # Расширена зона
+            rsi_oversold_exit = (30 < last['rsi'] < 50 and last['rsi'] > prev['rsi']) or (last['rsi'] < 40)
             
-            # Дополнительно: цена выше EMA50 но не слишком далеко (тренд есть, но есть место для входа)
-            price_above_ema = last['close'] > last['ema_50'] and (last['close'] - last['ema_50']) / last['ema_50'] < 0.03
+            # Pullback к поддержке (S/R) - проверяем ближайший уровень поддержки
+            # Упрощённо: если цена близка к EMA50, считаем что есть pullback
+            price_above_ema = current_price > last['ema_50'] and (current_price - last['ema_50']) <= tolerance_max
             
             return near_ema50 or rsi_oversold_exit or price_above_ema
         
         else:  # SHORT
-            # Ослабленный pullback: цена в пределах 2% от EMA50 или RSI показывает возможность входа
-            near_ema50 = abs(last['close'] - last['ema_50']) / last['close'] < 0.02  # Увеличено с 1% до 2%
+            # Pullback к EMA50 с допуском ±0.5–1 ATR
+            ema50_distance = abs(current_price - last['ema_50'])
+            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max or ema50_distance < tolerance_min
             
             # RSI в зоне перекупленности или выходит из неё
-            rsi_overbought_exit = (50 < last['rsi'] < 70 and last['rsi'] < prev['rsi']) or (last['rsi'] > 60)  # Расширена зона
+            rsi_overbought_exit = (50 < last['rsi'] < 70 and last['rsi'] < prev['rsi']) or (last['rsi'] > 60)
             
-            # Дополнительно: цена ниже EMA50 но не слишком далеко (тренд есть, но есть место для входа)
-            price_below_ema = last['close'] < last['ema_50'] and (last['ema_50'] - last['close']) / last['ema_50'] < 0.03
+            # Pullback к сопротивлению (S/R) - проверяем ближайший уровень сопротивления
+            # Упрощённо: если цена близка к EMA50, считаем что есть pullback
+            price_below_ema = current_price < last['ema_50'] and (last['ema_50'] - current_price) <= tolerance_max
             
             return near_ema50 or rsi_overbought_exit or price_below_ema
 

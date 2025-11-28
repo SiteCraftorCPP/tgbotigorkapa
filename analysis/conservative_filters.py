@@ -11,20 +11,20 @@ class ConservativeFilters:
     """Фильтры для отсева некачественных сигналов"""
     
     # Константы
-    TOP_COINS_LIMIT = 300
+    TOP_COINS_LIMIT = 200
     MIN_VOLUME_24H = 2_500_000  # $2.5M минимум
     MAX_SPREAD_PERCENT = 0.35  # 0.35% максимум
-    MIN_ATR_RATIO = 0.8  # Минимальная дистанция до ближайшего уровня в ATR (≥ 0.8 ATR)
-    MAX_ATR_RATIO = 3.0  # Максимальный размер стопа в ATR (≤ 3 ATR)
+    MIN_ATR_RATIO = 0.6  # Минимальная дистанция до ближайшего уровня в ATR (≥ 0.6 ATR)
+    MAX_ATR_RATIO = 4.0  # Максимальный размер стопа в ATR (≤ 4 ATR)
     
     # Минимальная корреляция с BTC/ETH для альткоинов
     MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
     
     # Channel Position Filter - адаптивные зоны
     CHANNEL_ZONES = {
-        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65},    # ATR < 1%: 35-65%
-        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}, # ATR 1-3%: 30-70%
-        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.25, 'forbidden_max': 0.75}  # ATR > 3%: 25-75%
+        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60},    # ATR < 1%: 40-60%
+        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65}, # ATR 1-3%: 35-65%
+        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}  # ATR > 3%: 30-70%
     }
     
     @staticmethod
@@ -251,6 +251,7 @@ class ConservativeFilters:
         """
         Проверка корреляции с BTC/ETH
         Для альткоинов: не входим против сильного движения BTC/ETH
+        Требование: BTC/ETH > 1.5% за 15 минут + ADX > 20
         """
         
         # Для самих BTC/ETH этот фильтр не применяется
@@ -258,21 +259,48 @@ class ConservativeFilters:
             return True
         
         try:
-            # Получаем данные BTC
-            btc_ticker = await client.get_ticker('BTC/USDT')
-            if not btc_ticker:
+            from utils.cache import btc_cache
+            from ta.trend import ADXIndicator
+            from ta.trend import EMAIndicator
+            
+            # Получаем данные BTC 1m для проверки движения за 15 минут
+            btc_df_1m = await btc_cache.get_btc_ohlcv_1m(client)
+            if btc_df_1m is None or btc_df_1m.empty or len(btc_df_1m) < 15:
                 return True  # Если нет данных, пропускаем фильтр
             
-            # Получаем изменение цены BTC за последний час
-            btc_change = btc_ticker.get('percentage', 0)
+            # Получаем данные BTC 1h для ADX
+            btc_df_1h = await btc_cache.get_btc_ohlcv_1h(client)
+            if btc_df_1h is None or btc_df_1h.empty or len(btc_df_1h) < 200:
+                return True  # Если нет данных, пропускаем фильтр
             
-            # Если BTC сильно падает (-2% и более), не открываем лонги по альткоинам
-            if direction == 'LONG' and btc_change < -2.0:
-                return False
+            # Проверяем движение BTC за последние 15 минут
+            recent_15min = btc_df_1m.tail(15)
+            price_15min_ago = recent_15min.iloc[0]['open']
+            current_price = recent_15min.iloc[-1]['close']
             
-            # Если BTC сильно растёт (+2% и более), не открываем шорты по альткоинам
-            if direction == 'SHORT' and btc_change > 2.0:
-                return False
+            if price_15min_ago == 0:
+                return True
+            
+            btc_change_15min = ((current_price - price_15min_ago) / price_15min_ago) * 100
+            
+            # Рассчитываем ADX на 1h
+            adx_indicator = ADXIndicator(
+                high=btc_df_1h['high'],
+                low=btc_df_1h['low'],
+                close=btc_df_1h['close'],
+                window=14
+            )
+            adx = adx_indicator.adx().iloc[-1]
+            
+            # Проверка: BTC движение > 1.5% за 15 мин И ADX > 20
+            if abs(btc_change_15min) > 1.5 and adx > 20:
+                # Если BTC сильно падает, не открываем лонги по альткоинам
+                if direction == 'LONG' and btc_change_15min < -1.5:
+                    return False
+                
+                # Если BTC сильно растёт, не открываем шорты по альткоинам
+                if direction == 'SHORT' and btc_change_15min > 1.5:
+                    return False
             
             return True
             

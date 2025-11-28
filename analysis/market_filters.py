@@ -17,8 +17,8 @@ class MarketFilters:
     
     # === FILTER CONSTANTS ===
     
-    # 1. Top-300 by market cap
-    TOP_COINS_LIMIT = 300
+    # 1. Top-200 by market cap
+    TOP_COINS_LIMIT = 200
     
     # 2. Futures volume
     MIN_FUTURES_VOLUME_USDT = 2_500_000  # ≥ 2,500,000 USDT
@@ -27,15 +27,15 @@ class MarketFilters:
     MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
     
     # 4. Liquidity
-    MIN_LIQUIDITY_USDT = 120_000  # ≥ 120,000 USDT
+    MIN_LIQUIDITY_USDT = 80_000  # ≥ 80,000 USDT
     LIQUIDITY_PRICE_RANGE = 0.003  # within 0.3% of price
     
     # 5. ATR volatility filter
-    ATR_MIN_PERCENT = 0.20  # ≥ 0.20%
+    ATR_MIN_PERCENT = 0.10  # ≥ 0.10%
     ATR_MAX_PERCENT = 6.0   # ≤ 6.0%
     
     # 6. Gap filter (Open→Close)
-    MAX_GAP_PERCENT = 1.5  # ≤ 1.5% разрыв Open→Close
+    MAX_GAP_PERCENT = 2.5  # ≤ 2.5% разрыв Open→Close
     
     # 7. Anomaly candle 5m
     ANOMALY_CANDLE_PERCENT = 3.0  # > 3%
@@ -58,15 +58,15 @@ class MarketFilters:
     # === NEW FILTERS ===
     
     # 12. BTC Volatility Guard
-    BTC_VOLATILITY_THRESHOLD = 1.5  # > 1.5% за 5 мин
-    BTC_VOLATILITY_PAUSE_MINUTES = 10  # пауза 10 минут
+    BTC_VOLATILITY_THRESHOLD = 2.5  # > 2.5% за 5 мин
+    BTC_VOLATILITY_PAUSE_MINUTES = 5  # пауза 5 минут
     
     # 13. Anti-Pump Filter
-    ANTI_PUMP_THRESHOLD = 7.0  # > ±7% за 30 минут
+    ANTI_PUMP_THRESHOLD = 10.0  # > ±10% за 30 минут
     ANTI_PUMP_LOOKBACK_CANDLES = 6  # 30 минут на 5m = 6 свечей
     
-    # 14. Time Guard (ОТКЛЮЧЕН)
-    TIME_GUARD_MINUTES = 0  # отключено (было 2 минуты)
+    # 14. Time Guard
+    TIME_GUARD_MINUTES = 3  # первые 3 минуты каждого часа
     
     # 15. Time Session Filter (ОТКЛЮЧЕН - слишком строгий)
     FORBIDDEN_HOURS_START = 25  # Отключено (25 > 24, никогда не сработает)

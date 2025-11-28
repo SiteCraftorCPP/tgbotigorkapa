@@ -15,7 +15,7 @@ class SignalGenerator:
     """Генератор ультраконсервативных торговых сигналов"""
     
     # Минимальный RR для TP1
-    MIN_RR_RATIO = 1.25  # ≥ 1.25:1
+    MIN_RR_RATIO = 1.2  # ≥ 1.2:1
     
     # Минимальная дистанция между уровнями (в процентах)
     MIN_LEVEL_DISTANCE_PERCENT = 0.1  # 0.1% минимум
@@ -64,8 +64,8 @@ class SignalGenerator:
         # Расчёт индикаторов
         self.ta.calculate_all_indicators()
         
-        if self.ta.df.empty or len(self.ta.df) < 200:
-            log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 200")
+        if self.ta.df.empty or len(self.ta.df) < 150:
+            log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 150")
             return None
         
         # МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ
@@ -371,14 +371,23 @@ class SignalGenerator:
             return True  # Недостаточно данных - пропускаем фильтр
         
         # Анализ структуры
+        # Запрет только при противоположной структуре
         if direction == 'LONG':
-            # Для LONG: последний high > предыдущего (HH) И последний low > предыдущего (HL)
-            higher_highs = highs[-1] > highs[-2]
-            higher_lows = lows[-1] > lows[-2]
-            return higher_highs or higher_lows  # Хотя бы одно условие
-        
-        else:  # SHORT
-            # Для SHORT: последний high < предыдущего (LH) И последний low < предыдущего (LL)
+            # Для LONG: запрещаем только если явная противоположная структура (LH/LL)
             lower_highs = highs[-1] < highs[-2]
             lower_lows = lows[-1] < lows[-2]
-            return lower_highs or lower_lows  # Хотя бы одно условие
+            # Блокируем только если ОБА условия противоположной структуры выполнены
+            if lower_highs and lower_lows:
+                return False
+            # В остальных случаях разрешаем (HH/HL или нейтральная структура)
+            return True
+        
+        else:  # SHORT
+            # Для SHORT: запрещаем только если явная противоположная структура (HH/HL)
+            higher_highs = highs[-1] > highs[-2]
+            higher_lows = lows[-1] > lows[-2]
+            # Блокируем только если ОБА условия противоположной структуры выполнены
+            if higher_highs and higher_lows:
+                return False
+            # В остальных случаях разрешаем (LH/LL или нейтральная структура)
+            return True
