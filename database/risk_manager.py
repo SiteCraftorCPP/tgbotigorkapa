@@ -23,19 +23,22 @@ class RiskManager:
         db = SessionLocal()
         
         try:
-            # 1. Проверка активного сигнала на эту монету
+            # Нормализация тикера (CAKE/USDT и CAKE/USD считаются одной парой)
+            base_coin = ticker.split('/')[0] if '/' in ticker else ticker
+            
+            # 1. Проверка активного сигнала на эту монету (с учётом разных форматов)
             active_signal = db.query(Signal).filter(
-                Signal.ticker == ticker,
+                (Signal.ticker == ticker) | (Signal.ticker.like(f"{base_coin}/%")),
                 Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
             ).first()
             
             if active_signal:
-                return False, f"Уже есть активный сигнал на {ticker}"
+                return False, f"Уже есть активный сигнал на {active_signal.ticker}"
             
-            # 2. Проверка cooldown для монеты
+            # 2. Проверка cooldown для монеты (с учётом разных форматов)
             cooldown_time = datetime.utcnow() - timedelta(hours=RiskManager.COOLDOWN_HOURS)
             recent_signal = db.query(Signal).filter(
-                Signal.ticker == ticker,
+                (Signal.ticker == ticker) | (Signal.ticker.like(f"{base_coin}/%")),
                 Signal.closed_at >= cooldown_time
             ).first()
             
