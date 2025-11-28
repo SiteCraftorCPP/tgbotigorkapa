@@ -31,7 +31,7 @@ class MarketFilters:
     LIQUIDITY_PRICE_RANGE = 0.003  # within 0.3% of price
     
     # 5. ATR volatility filter
-    ATR_MIN_PERCENT = 0.10  # ≥ 0.10% (ослаблено с 0.20%)
+    ATR_MIN_PERCENT = 0.20  # ≥ 0.20%
     ATR_MAX_PERCENT = 6.0   # ≤ 6.0%
     
     # 6. Gap filter (Open→Close)
