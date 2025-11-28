@@ -27,9 +27,10 @@ class RiskManager:
             base_coin = ticker.split('/')[0] if '/' in ticker else ticker
             
             # 1. Проверка активного сигнала на эту монету (с учётом разных форматов)
+            # Блокируем только WAITING и IN_POSITION (TP1_HIT/TP2_HIT/TP3_HIT не блокируют - это частично закрытые)
             active_signal = db.query(Signal).filter(
                 (Signal.ticker == ticker) | (Signal.ticker.like(f"{base_coin}/%")),
-                Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])
+                Signal.status.in_(['WAITING', 'IN_POSITION'])
             ).first()
             
             if active_signal:

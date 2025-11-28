@@ -68,7 +68,8 @@ def check_blocking_signals():
         # 4. Статистика по статусам
         print(f"\n📊 СТАТИСТИКА ПО СТАТУСАМ:")
         print("=" * 80)
-        statuses = db.query(Signal.status, db.func.count(Signal.id)).group_by(Signal.status).all()
+        from sqlalchemy import func
+        statuses = db.query(Signal.status, func.count(Signal.id)).group_by(Signal.status).all()
         for status, count in statuses:
             print(f"  • {status:20} : {count:4}")
         
