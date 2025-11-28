@@ -18,7 +18,7 @@ class SignalGenerator:
     MIN_RR_RATIO = 1.25  # ≥ 1.25:1
     
     # Минимальная дистанция между уровнями (в процентах)
-    MIN_LEVEL_DISTANCE_PERCENT = 0.1  # 0.1% минимум
+    MIN_LEVEL_DISTANCE_PERCENT = 0.05  # 0.05% минимум (ослаблено с 0.1%)
     
     def __init__(self, symbol: str, timeframe: str, df: pd.DataFrame, 
                  df_higher: pd.DataFrame, client: XTClient):
@@ -200,10 +200,10 @@ class SignalGenerator:
             logger.debug(f"[{self.symbol}] Invalid ATR: {atr}")
             return None
         
-        # Проверка минимального ATR (должен быть хотя бы 0.1% от цены)
-        min_atr = price * 0.001  # 0.1%
+        # Проверка минимального ATR (должен быть хотя бы 0.05% от цены - ослаблено)
+        min_atr = price * 0.0005  # 0.05%
         if atr < min_atr:
-            logger.debug(f"[{self.symbol}] ATR too small: {atr} < {min_atr} (0.1% of price)")
+            logger.debug(f"[{self.symbol}] ATR too small: {atr} < {min_atr} (0.05% of price)")
             return None
         
         # Entry = текущая цена
