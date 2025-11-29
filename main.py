@@ -162,9 +162,11 @@ class CryptoSignalBot:
             batch_results = await asyncio.gather(*batch_coroutines, return_exceptions=True)
             
             # Обрабатываем результаты батча
-            for result in batch_results:
+            for idx, result in enumerate(batch_results):
                 if isinstance(result, Exception):
                     errors_count += 1
+                    pair, tf = batch[idx] if idx < len(batch) else ("unknown", "unknown")
+                    log_error(f"Exception in {pair} {tf}: {str(result)}", "analyze_market_parallel")
                     continue
                     
                 if result and result.get('status') == 'signal':
@@ -173,6 +175,12 @@ class CryptoSignalBot:
                     signals_found += 1
                 elif result and result.get('status') == 'error':
                     errors_count += 1
+                    pair = result.get('pair', 'unknown')
+                    tf = result.get('timeframe', 'unknown')
+                    error_msg = result.get('error', 'Unknown error')
+                    # Логируем только первые 10 ошибок каждого типа, чтобы не засорять логи
+                    if errors_count <= 10 or errors_count % 50 == 0:
+                        log_error(f"Error in {pair} {tf}: {error_msg}", "analyze_market_parallel")
             
             # Логируем прогресс каждые 5 батчей
             if batch_num % 5 == 0 or batch_num == total_batches:
