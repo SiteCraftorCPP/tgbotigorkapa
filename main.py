@@ -226,36 +226,46 @@ class CryptoSignalBot:
             
             # Сохранение в БД
             log_info(f"[SAVING] Saving signal {signal['ticker']} {signal['direction']} to database...")
-            db_signal = Signal(
-                signal_id=signal['signal_id'],
-                ticker=signal['ticker'],
-                direction=signal['direction'],
-                entry_price=signal['entry_price'],
-                stop_loss=signal['stop_loss'],
-                take_profit_1=signal['take_profit_1'],
-                take_profit_2=signal['take_profit_2'],
-                take_profit_3=signal['take_profit_3'],
-                risk_percent=signal['risk_percent'],
-                leverage=signal['leverage'],
-                timeframe=signal['timeframe'],
-                timeframe_higher=signal.get('timeframe_higher'),
-                volume_24h=signal.get('volume_24h'),
-                spread_percent=signal.get('spread_percent'),
-                atr_value=signal.get('atr_value'),
-                status='WAITING'
-            )
-            
-            db.add(db_signal)
-            db.commit()
-            log_info(f"[SAVED] Signal {signal['ticker']} saved to database.")
-            
-            # Record signal time for cooldown
-            MarketFilters.record_signal_time(signal['ticker'])
-            
-            # Send to Telegram
-            await self.telegram_bot.send_signal(signal)
-            
-            log_signal(signal)
+            try:
+                db_signal = Signal(
+                    signal_id=signal['signal_id'],
+                    ticker=signal['ticker'],
+                    direction=signal['direction'],
+                    entry_price=signal['entry_price'],
+                    stop_loss=signal['stop_loss'],
+                    take_profit_1=signal['take_profit_1'],
+                    take_profit_2=signal['take_profit_2'],
+                    take_profit_3=signal['take_profit_3'],
+                    risk_percent=signal['risk_percent'],
+                    leverage=signal['leverage'],
+                    timeframe=signal['timeframe'],
+                    timeframe_higher=signal.get('timeframe_higher'),
+                    volume_24h=signal.get('volume_24h'),
+                    spread_percent=signal.get('spread_percent'),
+                    atr_value=signal.get('atr_value'),
+                    status='WAITING'
+                )
+                
+                db.add(db_signal)
+                db.commit()
+                log_info(f"[SAVED] Signal {signal['ticker']} saved to database.")
+                
+                # Record signal time for cooldown
+                MarketFilters.record_signal_time(signal['ticker'])
+                
+                # Send to Telegram
+                log_info(f"[TELEGRAM] Sending signal {signal['ticker']} to Telegram channel...")
+                send_result = await self.telegram_bot.send_signal(signal)
+                if send_result:
+                    log_info(f"[TELEGRAM] ✅ Signal {signal['ticker']} successfully sent to channel!")
+                else:
+                    log_warning(f"[TELEGRAM] ⚠️ Signal {signal['ticker']} NOT sent to channel (send_signal returned False)")
+                
+                log_signal(signal)
+            except Exception as db_error:
+                log_error(f"Database error saving {signal['ticker']}: {str(db_error)}", "save_signal_db")
+                db.rollback()
+                raise
             
         except Exception as e:
             log_error(str(e), f"saving signal {signal.get('ticker', 'unknown')}")
