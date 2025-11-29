@@ -18,6 +18,11 @@ class TechnicalAnalysis:
             return self.df
         
         # EMA
+        self.df['ema_21'] = EMAIndicator(
+            close=self.df['close'],
+            window=21
+        ).ema_indicator()
+        
         self.df['ema_50'] = EMAIndicator(
             close=self.df['close'],
             window=config.EMA_SHORT
