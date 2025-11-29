@@ -175,7 +175,7 @@ class CryptoSignalBot:
                     errors_count += 1
                     pair, tf = batch[idx] if idx < len(batch) else ("unknown", "unknown")
                     log_error(f"Exception in {pair} {tf}: {str(result)}", "analyze_market_parallel")
-                        continue
+                    continue
                     
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
@@ -223,59 +223,59 @@ class CryptoSignalBot:
                 return
             
             # Проверка дубликатов
-                            recent_signal = db.query(Signal).filter(
+            recent_signal = db.query(Signal).filter(
                 Signal.ticker == signal['ticker'],
                 Signal.status.in_(['WAITING', 'IN_POSITION'])
-                            ).first()
-                            
-                            if recent_signal:
+            ).first()
+            
+            if recent_signal:
                 log_info(f"Skipping {signal['ticker']}: active signal exists (ID: {recent_signal.signal_id}, Status: {recent_signal.status})")
                 return
-                            
+            
             # Сохранение в БД
             log_info(f"[SAVING] Saving signal {signal['ticker']} {signal['direction']} to database...")
             try:
                 log_info(f"[SAVING] Creating Signal object for {signal['ticker']}...")
-                            db_signal = Signal(
-                                signal_id=signal['signal_id'],
-                                ticker=signal['ticker'],
-                                direction=signal['direction'],
-                                entry_price=signal['entry_price'],
-                                stop_loss=signal['stop_loss'],
-                                take_profit_1=signal['take_profit_1'],
-                                take_profit_2=signal['take_profit_2'],
-                                take_profit_3=signal['take_profit_3'],
+                db_signal = Signal(
+                    signal_id=signal['signal_id'],
+                    ticker=signal['ticker'],
+                    direction=signal['direction'],
+                    entry_price=signal['entry_price'],
+                    stop_loss=signal['stop_loss'],
+                    take_profit_1=signal['take_profit_1'],
+                    take_profit_2=signal['take_profit_2'],
+                    take_profit_3=signal['take_profit_3'],
                     take_profit_4=signal.get('take_profit_4', signal['take_profit_3']),  # Use TP3 if TP4 not provided
-                                risk_percent=signal['risk_percent'],
-                                leverage=signal['leverage'],
+                    risk_percent=signal['risk_percent'],
+                    leverage=signal['leverage'],
                     ai_score=0,  # Set default value for deprecated field
-                                timeframe=signal['timeframe'],
-                                timeframe_higher=signal.get('timeframe_higher'),
-                                volume_24h=signal.get('volume_24h'),
-                                spread_percent=signal.get('spread_percent'),
-                                atr_value=signal.get('atr_value'),
+                    timeframe=signal['timeframe'],
+                    timeframe_higher=signal.get('timeframe_higher'),
+                    volume_24h=signal.get('volume_24h'),
+                    spread_percent=signal.get('spread_percent'),
+                    atr_value=signal.get('atr_value'),
                     status='WAITING'
-                            )
-                            
+                )
+                
                 log_info(f"[SAVING] Adding signal {signal['ticker']} to session...")
-                            db.add(db_signal)
+                db.add(db_signal)
                 
                 log_info(f"[SAVING] Committing signal {signal['ticker']} to database...")
-                            db.commit()
+                db.commit()
                 log_info(f"[SAVED] Signal {signal['ticker']} saved to database.")
-                            
-                            # Record signal time for cooldown
+                
+                # Record signal time for cooldown
                 MarketFilters.record_signal_time(signal['ticker'])
-                            
-                            # Send to Telegram
+                
+                # Send to Telegram
                 log_info(f"[TELEGRAM] Sending signal {signal['ticker']} to Telegram channel...")
                 send_result = await self.telegram_bot.send_signal(signal)
                 if send_result:
                     log_info(f"[TELEGRAM] ✅ Signal {signal['ticker']} successfully sent to channel!")
                 else:
                     log_warning(f"[TELEGRAM] ⚠️ Signal {signal['ticker']} NOT sent to channel (send_signal returned False)")
-                            
-                            log_signal(signal)
+                
+                log_signal(signal)
             except Exception as db_error:
                 log_error(f"Database error saving {signal['ticker']}: {str(db_error)}", "save_signal_db")
                 db.rollback()
@@ -284,8 +284,8 @@ class CryptoSignalBot:
         except Exception as e:
             log_error(str(e), f"saving signal {signal.get('ticker', 'unknown')}")
             db.rollback()
-                        finally:
-                            db.close()
+        finally:
+            db.close()
                 
     async def analyze_market(self):
         """
