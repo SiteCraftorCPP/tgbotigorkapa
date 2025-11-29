@@ -227,6 +227,7 @@ class CryptoSignalBot:
             # Сохранение в БД
             log_info(f"[SAVING] Saving signal {signal['ticker']} {signal['direction']} to database...")
             try:
+                log_info(f"[SAVING] Creating Signal object for {signal['ticker']}...")
                 db_signal = Signal(
                     signal_id=signal['signal_id'],
                     ticker=signal['ticker'],
@@ -246,7 +247,10 @@ class CryptoSignalBot:
                     status='WAITING'
                 )
                 
+                log_info(f"[SAVING] Adding signal {signal['ticker']} to session...")
                 db.add(db_signal)
+                
+                log_info(f"[SAVING] Committing signal {signal['ticker']} to database...")
                 db.commit()
                 log_info(f"[SAVED] Signal {signal['ticker']} saved to database.")
                 
