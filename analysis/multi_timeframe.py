@@ -61,14 +61,17 @@ class MultiTimeframeAnalysis:
         # Но если тренд нейтральный или слабый, пропускаем эту проверку
         last_higher = ta_higher.df.iloc[-1]
         
-        # СМЯГЧЕНО: разрешаем сигналы при любой позиции относительно EMA200
-        # Только проверяем что EMA200 существует
-        if 'ema_200' not in last_higher or pd.isna(last_higher['ema_200']):
+        # СМЯГЧЕНО: для нейтральных трендов пропускаем проверку EMA200
+        # Для сильных трендов проверяем позицию относительно EMA200
+        if is_neutral:
+            # Если тренд нейтральный - пропускаем проверку структуры
+            strong_trend = True
+        elif 'ema_200' not in last_higher or pd.isna(last_higher['ema_200']):
             strong_trend = True  # Если нет EMA200, пропускаем проверку
         else:
-            # Разрешаем если цена в пределах 10% от EMA200 (было 2%)
+            # Для сильных трендов: разрешаем если цена в пределах 30% от EMA200
             price_ema_diff = abs(last_higher['close'] - last_higher['ema_200']) / last_higher['ema_200']
-            strong_trend = price_ema_diff < 0.15  # 15% допуск (очень мягко)
+            strong_trend = price_ema_diff < 0.30  # 30% допуск (очень мягко)
         
         return {
             'aligned': aligned and strong_trend,
