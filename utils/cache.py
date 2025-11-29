@@ -161,13 +161,22 @@ class RateLimiter:
             max_concurrent: Максимум одновременных запросов
             requests_per_second: Максимум запросов в секунду
         """
-        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._max_concurrent = max_concurrent
+        self._semaphore = None  # Создается лениво в async контексте
         self._min_interval = 1.0 / requests_per_second
         self._last_request_time = 0
-        self._lock = asyncio.Lock()
+        self._lock = None  # Создается лениво в async контексте
+    
+    async def _ensure_initialized(self):
+        """Инициализирует semaphore и lock в текущем event loop"""
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self._max_concurrent)
+        if self._lock is None:
+            self._lock = asyncio.Lock()
     
     async def acquire(self):
         """Получить разрешение на запрос"""
+        await self._ensure_initialized()
         await self._semaphore.acquire()
         
         async with self._lock:
@@ -181,7 +190,8 @@ class RateLimiter:
     
     def release(self):
         """Освободить разрешение"""
-        self._semaphore.release()
+        if self._semaphore is not None:
+            self._semaphore.release()
     
     async def __aenter__(self):
         await self.acquire()

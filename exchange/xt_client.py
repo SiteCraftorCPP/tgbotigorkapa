@@ -361,27 +361,40 @@ class XTClient:
                 self.binance_exchange = None
             
             # Загружаем рынки для правильной работы с символами
-            # Загружаем синхронно при инициализации
-            try:
-                # Загружаем рынки в executor для избежания блокировки
-                loop = asyncio.get_event_loop()
-                loop.run_in_executor(None, self.exchange.load_markets)
-            except Exception as e:
-                print(f"WARN: Не удалось загрузить рынки при инициализации: {e}")
+            # Не загружаем при инициализации - будет загружено по требованию
+            # Это избегает проблем с event loop
             # Executor для Python 3.7 совместимости
             self.executor = ThreadPoolExecutor(max_workers=5)
+            # Сохраняем ссылку на event loop (будет установлена при первом использовании)
+            self._event_loop = None
         except Exception as e:
             print(f"ERROR: Не удалось создать клиент XT.com: {e}")
             raise
     
     
-    def _run_in_executor(self, func, *args, **kwargs):
+    async def _run_in_executor(self, func, *args, **kwargs):
         """Запуск синхронной функции в executor (для Python 3.7)"""
-        loop = asyncio.get_event_loop()
+        # Получаем текущий event loop через текущую задачу (наиболее надежный способ)
+        try:
+            # Пытаемся получить loop через текущую задачу
+            task = asyncio.current_task()
+            if task:
+                loop = task.get_loop()
+            else:
+                # Если нет текущей задачи, используем get_event_loop()
+                loop = asyncio.get_event_loop()
+        except (RuntimeError, AttributeError):
+            # Fallback на get_event_loop()
+            loop = asyncio.get_event_loop()
+        
+        # Проверяем, что loop не закрыт
+        if loop.is_closed():
+            raise RuntimeError("Event loop is closed")
+        
         if kwargs:
-            return loop.run_in_executor(self.executor, lambda: func(*args, **kwargs))
+            return await loop.run_in_executor(self.executor, lambda: func(*args, **kwargs))
         else:
-            return loop.run_in_executor(self.executor, lambda: func(*args))
+            return await loop.run_in_executor(self.executor, lambda: func(*args))
         
     async def get_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
         """Получение OHLCV данных"""

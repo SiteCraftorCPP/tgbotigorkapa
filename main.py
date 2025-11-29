@@ -29,7 +29,7 @@ class CryptoSignalBot:
         self.telegram_bot = TelegramBot()
         self.is_running = False
         self.polling_task = None
-        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TASKS)
+        self._semaphore = None  # Будет создан в async контексте
         
     async def initialize(self):
         """Инициализация бота"""
@@ -68,6 +68,10 @@ class CryptoSignalBot:
         Обработка одной пары на одном таймфрейме
         Возвращает результат или None
         """
+        # Создаем semaphore если еще не создан (для Python 3.7 совместимости)
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TASKS)
+        
         async with self._semaphore:
             try:
                 # Rate limiting
@@ -118,6 +122,10 @@ class CryptoSignalBot:
         Параллельный анализ рынка для 200+ торговых пар
         Использует батчи для оптимальной производительности
         """
+        # Создаем semaphore если еще не создан (для Python 3.7 совместимости)
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TASKS)
+        
         if not ConfigManager.is_bot_enabled():
             log_warning("Bot disabled, skipping analysis")
             return
@@ -240,6 +248,7 @@ class CryptoSignalBot:
                     take_profit_4=signal.get('take_profit_4', signal['take_profit_3']),  # Use TP3 if TP4 not provided
                     risk_percent=signal['risk_percent'],
                     leverage=signal['leverage'],
+                    ai_score=0,  # Set default value for deprecated field
                     timeframe=signal['timeframe'],
                     timeframe_higher=signal.get('timeframe_higher'),
                     volume_24h=signal.get('volume_24h'),

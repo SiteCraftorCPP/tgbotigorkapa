@@ -14,8 +14,9 @@ class ConservativeFilters:
     TOP_COINS_LIMIT = 200
     MIN_VOLUME_24H = 500_000  # $500K минимум (было $2.5M)
     MAX_SPREAD_PERCENT = 0.5  # 0.5% максимум (было 0.35%)
-    MIN_ATR_RATIO = 0.3  # Минимальная дистанция до ближайшего уровня в ATR (≥ 0.3 ATR, было 0.6)
-    MAX_ATR_RATIO = 6.0  # Максимальный размер стопа в ATR (≤ 6 ATR, было 4)
+    MIN_ATR_RATIO = 0.0  # Минимальная дистанция до ближайшего уровня в ATR (не используется)
+    MAX_ATR_RATIO = 13.0  # Максимальный размер стопа в ATR (≤ 13 ATR)
+    MAX_ENTRY_LEVEL_DISTANCE_ATR = 3.0  # Максимальная дистанция Entry → Level (≤ 3.0 ATR)
     
     # Минимальная корреляция с BTC/ETH для альткоинов
     MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
@@ -168,8 +169,8 @@ class ConservativeFilters:
             nearest_support = max([s for s in supports if s < entry], default=entry * 0.9)
             distance = entry - nearest_support
         
-        # Дистанция должна быть хотя бы 0.8 ATR
-        return distance >= (atr * ConservativeFilters.MIN_ATR_RATIO)
+        # Дистанция Entry → Level должна быть ≤ 3.0 ATR
+        return distance <= (atr * ConservativeFilters.MAX_ENTRY_LEVEL_DISTANCE_ATR)
     
     @staticmethod
     def check_channel_position(df: pd.DataFrame, entry: float, atr_percent: float, direction: str) -> Dict:

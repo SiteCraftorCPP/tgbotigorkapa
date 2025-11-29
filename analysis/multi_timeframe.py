@@ -100,8 +100,8 @@ class MultiTimeframeAnalysis:
         atr = last['atr']
         current_price = last['close']
         
-        # Допуск в ATR: от 0 до 3 ATR (СМЯГЧЕНО: было 0.5-1)
-        tolerance_max = atr * 3.0
+        # Допуск в ATR: ±3.5 ATR
+        tolerance_max = atr * 3.5
         
         if direction == 'LONG':
             # Pullback к EMA50 с допуском до 3 ATR
