@@ -237,6 +237,7 @@ class CryptoSignalBot:
                     take_profit_1=signal['take_profit_1'],
                     take_profit_2=signal['take_profit_2'],
                     take_profit_3=signal['take_profit_3'],
+                    take_profit_4=signal.get('take_profit_4', signal['take_profit_3']),  # Use TP3 if TP4 not provided
                     risk_percent=signal['risk_percent'],
                     leverage=signal['leverage'],
                     timeframe=signal['timeframe'],

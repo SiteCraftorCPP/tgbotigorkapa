@@ -22,7 +22,7 @@ class Signal(Base):
     take_profit_1 = Column(Float, nullable=False)
     take_profit_2 = Column(Float, nullable=False)
     take_profit_3 = Column(Float, nullable=False)
-    take_profit_4 = Column(Float, nullable=False)
+    take_profit_4 = Column(Float, nullable=True)  # Made nullable as it's no longer used
     
     # TP flags
     tp1_hit = Column(Boolean, default=False)
