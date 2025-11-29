@@ -288,7 +288,7 @@ class ConservativeFilters:
                 # Если BTC сильно падает, не открываем лонги по альткоинам
                 if direction == 'LONG' and btc_change_15min < -2.0:
                     return False
-            
+                
                 # Если BTC сильно растёт, не открываем шорты по альткоинам
                 if direction == 'SHORT' and btc_change_15min > 2.0:
                     return False
