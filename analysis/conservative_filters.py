@@ -15,17 +15,17 @@ class ConservativeFilters:
     MIN_VOLUME_24H = 500_000  # $500K минимум (было $2.5M)
     MAX_SPREAD_PERCENT = 0.5  # 0.5% максимум (было 0.35%)
     MIN_ATR_RATIO = 0.0  # Минимальная дистанция до ближайшего уровня в ATR (не используется)
-    MAX_ATR_RATIO = 13.0  # Максимальный размер стопа в ATR (≤ 13 ATR)
-    MAX_ENTRY_LEVEL_DISTANCE_ATR = 3.0  # Максимальная дистанция Entry → Level (≤ 3.0 ATR)
+    MAX_ATR_RATIO = 4.0  # Максимальный размер стопа в ATR (≤ 4 ATR)
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 0.6  # Минимальная дистанция до противоположного уровня (≥ 0.6 ATR)
     
     # Минимальная корреляция с BTC/ETH для альткоинов
     MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
     
-    # Channel Position Filter - адаптивные зоны (СМЯГЧЕНЫ)
+    # Channel Position Filter - адаптивные зоны
     CHANNEL_ZONES = {
-        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.45, 'forbidden_max': 0.55},    # ATR < 1%: 45-55% (было 40-60%)
-        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.42, 'forbidden_max': 0.58}, # ATR 1-3%: 42-58% (было 35-65%)
-        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60}  # ATR > 3%: 40-60% (было 30-70%)
+        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60},    # ATR < 1%: запрет 40-60%
+        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65}, # ATR 1-3%: запрет 35-65%
+        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}  # ATR > 3%: запрет 30-70%
     }
     
     @staticmethod
@@ -122,13 +122,35 @@ class ConservativeFilters:
                 if abs(high - level) <= tolerance:
                     touches += 1
         
-        # Минимум 1 касание (убрано требование подтверждения объёмом)
-        return touches >= 1
+        # Минимум 1 касание + подтверждение объёмом
+        if touches < 1:
+            return False
+        
+        # Проверка подтверждения объёмом: объём при касании должен быть выше среднего
+        volume_confirmed = False
+        if touches > 0:
+            avg_volume = recent['volume'].mean()
+            for i in range(len(recent)):
+                row = recent.iloc[i]
+                low = row['low']
+                high = row['high']
+                volume = row['volume']
+                
+                if direction == 'LONG' and abs(low - level) <= tolerance:
+                    if volume > avg_volume * 0.8:  # Объём при касании ≥ 80% от среднего
+                        volume_confirmed = True
+                        break
+                elif direction == 'SHORT' and abs(high - level) <= tolerance:
+                    if volume > avg_volume * 0.8:
+                        volume_confirmed = True
+                        break
+        
+        return volume_confirmed
     
     @staticmethod
     def check_distance_to_opposite_level(df: pd.DataFrame, entry: float, 
                                         direction: str, atr: float) -> bool:
-        """Проверка дистанции до ближайшего противонаправленного уровня (≥ 0.8 ATR)"""
+        """Проверка дистанции до ближайшего противонаправленного уровня (≥ 0.6 ATR)"""
         
         # Находим локальные максимумы и минимумы
         window = 20
@@ -169,8 +191,8 @@ class ConservativeFilters:
             nearest_support = max([s for s in supports if s < entry], default=entry * 0.9)
             distance = entry - nearest_support
         
-        # Дистанция Entry → Level должна быть ≤ 3.0 ATR
-        return distance <= (atr * ConservativeFilters.MAX_ENTRY_LEVEL_DISTANCE_ATR)
+        # Дистанция до противоположного уровня должна быть ≥ 0.6 ATR
+        return distance >= (atr * ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR)
     
     @staticmethod
     def check_channel_position(df: pd.DataFrame, entry: float, atr_percent: float, direction: str) -> Dict:
@@ -284,14 +306,14 @@ class ConservativeFilters:
             )
             adx = adx_indicator.adx().iloc[-1]
             
-            # Проверка: BTC движение > 2% за 15 мин И ADX > 25 (смягчено)
-            if abs(btc_change_15min) > 2.0 and adx > 25:
+            # Проверка: BTC/ETH движение > 1.5% за 15 мин И ADX > 20
+            if abs(btc_change_15min) > 1.5 and adx > 20:
                 # Если BTC сильно падает, не открываем лонги по альткоинам
-                if direction == 'LONG' and btc_change_15min < -2.0:
+                if direction == 'LONG' and btc_change_15min < -1.5:
                     return False
                 
                 # Если BTC сильно растёт, не открываем шорты по альткоинам
-                if direction == 'SHORT' and btc_change_15min > 2.0:
+                if direction == 'SHORT' and btc_change_15min > 1.5:
                     return False
             
             return True
@@ -345,9 +367,9 @@ class ConservativeFilters:
             result['reasons'].append("Качество уровня: недостаточно касаний или нет подтверждения объёмом")
             return result
         
-        # 6. Дистанция до противоположного уровня (≥ 0.8 ATR)
+        # 6. Дистанция до противоположного уровня (≥ 0.6 ATR)
         if not ConservativeFilters.check_distance_to_opposite_level(df, entry, direction, atr):
-            result['reasons'].append(f"Дистанция до противоположного уровня < {ConservativeFilters.MIN_ATR_RATIO} ATR")
+            result['reasons'].append(f"Дистанция до противоположного уровня < {ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR} ATR")
             return result
         
         # 7. Channel Position Filter (адаптивный)

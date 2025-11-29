@@ -15,7 +15,7 @@ class SignalGenerator:
     """Генератор ультраконсервативных торговых сигналов"""
     
     # Минимальный RR для TP1
-    MIN_RR_RATIO = 1.03  # ≥ 1.03:1
+    MIN_RR_RATIO = 1.2  # ≥ 1.2:1
     
     # Минимальная дистанция между уровнями (в процентах) - СМЯГЧЕНО
     MIN_LEVEL_DISTANCE_PERCENT = 0.03  # 0.03% минимум (было 0.1%)
@@ -69,46 +69,31 @@ class SignalGenerator:
             return None
         
         # МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ
-        # Проверка: 15m и 1h не оба против направления сделки
+        # Тренд совпадает, нейтральный или не ярко-против
         mtf = MultiTimeframeAnalysis.check_trend_alignment(self.df_higher, self.df)
-        higher_trend = mtf.get('higher_trend')  # 1h trend
-        lower_trend = mtf.get('lower_signal')     # 15m trend
+        
+        if not mtf.get('aligned', False):
+            mtf_reason = f"MTF not aligned: higher={mtf.get('higher_trend')} (score={mtf.get('higher_score', 0):.0f}), lower={mtf.get('lower_signal')} (score={mtf.get('lower_score', 0):.0f})"
+            log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", mtf_reason)
+            return None
         
         # Определяем направление сигнала из тренда (приоритет у higher_trend)
-        direction = higher_trend if higher_trend else lower_trend
+        direction = mtf.get('higher_trend') if mtf.get('higher_trend') else mtf.get('lower_signal')
         
         # Если нет направления, пропускаем
         if not direction:
             log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", "No trend direction found")
             return None
         
-        # Блокируем только если оба таймфрейма явно против направления (не None, не нейтральные)
-        if direction == 'LONG':
-            if higher_trend == 'SHORT' and lower_trend == 'SHORT':
-                log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", "Both 1h and 15m against LONG direction")
-                return None
-        elif direction == 'SHORT':
-            if higher_trend == 'LONG' and lower_trend == 'LONG':
-                log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", "Both 1h and 15m against SHORT direction")
-                return None
-        
-        # ПРОВЕРКА PULLBACK (коррекция к уровню) с допуском ±3.5 ATR
+        # ПРОВЕРКА PULLBACK (коррекция к уровню) с допуском ±0.5-1 ATR
         if not MultiTimeframeAnalysis.check_pullback_opportunity(self.df, direction):
             log_filter_block(self.symbol, self.timeframe, "Pullback", f"No pullback opportunity for {direction}")
             return None
         
-        # ПРОВЕРКА СВЕЧИ ВХОДА ≤ 2.2 ATR
-        last_candle = self.ta.df.iloc[-1]
-        candle_size = abs(last_candle['close'] - last_candle['open'])
-        atr = last_candle['atr']
-        if atr > 0 and candle_size > (atr * 2.2):
-            log_filter_block(self.symbol, self.timeframe, "EntryCandle", f"Entry candle {candle_size:.6f} > 2.2 ATR ({atr * 2.2:.6f})")
+        # ПРОВЕРКА MARKET STRUCTURE: запрет только при противоположной структуре
+        if not self._check_market_structure(direction):
+            log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Opposite market structure for {direction}")
             return None
-        
-        # ПРОВЕРКА MARKET STRUCTURE - ОТКЛЮЧЕНО для увеличения сигналов
-        # if not self._check_market_structure(direction):
-        #     log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Invalid structure for {direction}")
-        #     return None
         
         # Получение всех сигналов
         trend = self.ta.get_trend_signal()

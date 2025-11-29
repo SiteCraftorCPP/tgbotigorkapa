@@ -21,21 +21,21 @@ class MarketFilters:
     TOP_COINS_LIMIT = 200
     
     # 2. Futures volume
-    MIN_FUTURES_VOLUME_USDT = 550_000  # ≥ 550,000 USDT
+    MIN_FUTURES_VOLUME_USDT = 2_500_000  # ≥ 2,500,000 USDT
     
     # 3. Spread
-    MAX_SPREAD_PERCENT = 0.8  # ≤ 0.8%
+    MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
     
-    # 4. Liquidity (СМЯГЧЕНО: было 80,000)
-    MIN_LIQUIDITY_USDT = 20_000  # ≥ 20,000 USDT
+    # 4. Liquidity
+    MIN_LIQUIDITY_USDT = 80_000  # ≥ 80,000 USDT
     LIQUIDITY_PRICE_RANGE = 0.005  # within 0.5% of price
     
     # 5. ATR volatility filter
-    ATR_MIN_PERCENT = 0.04  # ≥ 0.04%
-    ATR_MAX_PERCENT = 28.0   # ≤ 28.0%
+    ATR_MIN_PERCENT = 0.10  # ≥ 0.10%
+    ATR_MAX_PERCENT = 6.0   # ≤ 6.0%
     
-    # 6. Gap filter (Open→Close) - СМЯГЧЕНО
-    MAX_GAP_PERCENT = 5.0  # ≤ 5.0% разрыв Open→Close (было 2.5%)
+    # 6. Gap filter (Open→Close)
+    MAX_GAP_PERCENT = 2.5  # ≤ 2.5% разрыв Open→Close
     
     # 7. Anomaly candle 5m - СМЯГЧЕНО
     ANOMALY_CANDLE_PERCENT = 5.0  # > 5% (было 3%)
@@ -58,22 +58,19 @@ class MarketFilters:
     # === NEW FILTERS (СМЯГЧЕНЫ) ===
     
     # 12. BTC Volatility Guard
-    BTC_VOLATILITY_THRESHOLD = 3.5  # > 3.5% за 10 мин
-    BTC_VOLATILITY_PAUSE_MINUTES = 1.5  # пауза 1.5 минуты
+    BTC_VOLATILITY_THRESHOLD = 2.5  # > 2.5% за 5 мин
+    BTC_VOLATILITY_PAUSE_MINUTES = 5  # пауза 5 минут
     
-    # 13. Anti-Pump Filter - СМЯГЧЕНО
-    ANTI_PUMP_THRESHOLD = 15.0  # > ±15% за 30 минут (было 10%)
+    # 13. Anti-Pump Filter
+    ANTI_PUMP_THRESHOLD = 10.0  # > ±10% за 30 минут
     ANTI_PUMP_LOOKBACK_CANDLES = 6  # 30 минут на 5m = 6 свечей
     
-    # 14. Time Guard - ОТКЛЮЧЕНО
-    TIME_GUARD_MINUTES = 0  # отключено (было 3)
+    # 14. Time Guard
+    TIME_GUARD_MINUTES = 3  # избегать входов в первые 3 минуты каждого часа
     
     # 15. Time Session Filter - ОТКЛЮЧЕНО
     FORBIDDEN_HOURS_START = 25  # Отключено
     FORBIDDEN_HOURS_END = -1    # Отключено
-    
-    # 16. Funding Rate Filter
-    MAX_FUNDING_RATE_PERCENT = 0.35  # ≤ |0.35%|
     
     # Storage for paused coins
     _paused_coins = {}  # {ticker: pause_until_timestamp}
@@ -152,7 +149,7 @@ class MarketFilters:
             return result
         result['volume_24h'] = volume_24h
         
-        # 4. Spread ≤ 0.8%
+        # 4. Spread ≤ 0.35%
         spread = await MarketFilters.check_spread(ticker, client)
         if spread is None:
             result['reason'] = "Failed to get spread"
@@ -162,15 +159,7 @@ class MarketFilters:
             return result
         result['spread'] = spread
         
-        # 5. Funding Rate ≤ |0.35%|
-        funding_rate = await client.get_funding_rate(ticker)
-        if funding_rate is not None:
-            funding_rate_percent = abs(funding_rate) * 100  # Convert to percentage
-            if funding_rate_percent > MarketFilters.MAX_FUNDING_RATE_PERCENT:
-                result['reason'] = f"Funding rate {funding_rate_percent:.3f}% > {MarketFilters.MAX_FUNDING_RATE_PERCENT}%"
-                return result
-        
-        # 6. Liquidity ≥ 120,000 USDT within 0.3% of price
+        # 5. Liquidity ≥ 80,000 USDT within 0.5% of price
         liquidity = await MarketFilters.check_liquidity(ticker, client)
         if liquidity is None or liquidity < MarketFilters.MIN_LIQUIDITY_USDT:
             liq_str = f"{liquidity:,.0f}" if liquidity else "0"
@@ -178,7 +167,7 @@ class MarketFilters:
             return result
         result['liquidity'] = liquidity
         
-        # 7. ATR volatility filter: 0.04% ≤ ATR% ≤ 28.0%
+        # 7. ATR volatility filter: 0.10% ≤ ATR% ≤ 6.0%
         atr_check = MarketFilters.check_atr_volatility(df)
         if not atr_check['passed']:
             result['reason'] = atr_check['reason']
@@ -269,7 +258,7 @@ class MarketFilters:
     @staticmethod
     async def check_btc_volatility_guard(client: XTClient) -> Dict:
         """
-        BTC Volatility Guard: при движении BTC > 1.5% за 5 минут — пауза 10 минут
+        BTC Volatility Guard: при движении BTC > 2.5% за 5 минут — пауза 5 минут
         Использует кэш для оптимизации при 200+ парах
         
         Returns:
@@ -297,26 +286,26 @@ class MarketFilters:
                 result['reason'] = "BTC data unavailable, filter skipped"
                 return result
             
-            # Берём последние 10 минут (10 свечей на 1m таймфрейме)
-            if len(btc_df) < 10:
+            # Берём последние 5 минут (5 свечей на 1m таймфрейме)
+            if len(btc_df) < 5:
                 result['passed'] = True
-                result['reason'] = "Not enough BTC data for 10min check, filter skipped"
+                result['reason'] = "Not enough BTC data for 5min check, filter skipped"
                 return result
-            recent_10min = btc_df.tail(10)  # 10 свечей = 10 минут на 1m
-            price_10min_ago = recent_10min.iloc[0]['open']
-            current_price = recent_10min.iloc[-1]['close']
+            recent_5min = btc_df.tail(5)  # 5 свечей = 5 минут на 1m
+            price_5min_ago = recent_5min.iloc[0]['open']
+            current_price = recent_5min.iloc[-1]['close']
             
-            if price_10min_ago == 0:
+            if price_5min_ago == 0:
                 result['passed'] = True
                 return result
             
             # Изменение в процентах
-            change_percent = abs((current_price - price_10min_ago) / price_10min_ago) * 100
+            change_percent = abs((current_price - price_5min_ago) / price_5min_ago) * 100
             
             if change_percent > MarketFilters.BTC_VOLATILITY_THRESHOLD:
                 # Устанавливаем паузу
                 MarketFilters._btc_pause_until = datetime.utcnow() + timedelta(minutes=MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES)
-                result['reason'] = f"BTC moved {change_percent:.2f}% in 10 min > {MarketFilters.BTC_VOLATILITY_THRESHOLD}% ({MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES} min pause set)"
+                result['reason'] = f"BTC moved {change_percent:.2f}% in 5 min > {MarketFilters.BTC_VOLATILITY_THRESHOLD}% ({MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES} min pause set)"
                 return result
             
             result['passed'] = True

@@ -15,7 +15,7 @@ class RiskManager:
     MAX_TOTAL_RISK = 10.0  # 10% суммарный риск
     MAX_SIGNALS_PER_DAY = 20
     MAX_SIGNALS_PER_COIN = 1
-    COOLDOWN_MINUTES = 2.5  # Cooldown 2.5 минуты для монеты после закрытия сигнала
+    COOLDOWN_HOURS = 1  # Cooldown 1 час для монеты после закрытия сигнала
     
     @staticmethod
     def can_open_new_signal(ticker: str) -> Tuple[bool, str]:
@@ -37,7 +37,7 @@ class RiskManager:
                 return False, f"Уже есть активный сигнал на {active_signal.ticker}"
             
             # 2. Проверка cooldown для монеты (с учётом разных форматов)
-            cooldown_time = datetime.utcnow() - timedelta(minutes=RiskManager.COOLDOWN_MINUTES)
+            cooldown_time = datetime.utcnow() - timedelta(hours=RiskManager.COOLDOWN_HOURS)
             recent_signal = db.query(Signal).filter(
                 (Signal.ticker == ticker) | (Signal.ticker.like(f"{base_coin}/%")),
                 Signal.closed_at.isnot(None),  # Только закрытые сигналы
@@ -45,7 +45,7 @@ class RiskManager:
             ).first()
             
             if recent_signal:
-                return False, f"Cooldown для {ticker} (ещё {RiskManager.COOLDOWN_MINUTES} мин)"
+                return False, f"Cooldown для {ticker} (ещё {RiskManager.COOLDOWN_HOURS} час)"
             
             # Убраны ограничения:
             # - Лимит сигналов за сутки (MAX_SIGNALS_PER_DAY)

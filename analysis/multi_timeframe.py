@@ -50,12 +50,22 @@ class MultiTimeframeAnalysis:
         
         # Разрешаем сигнал если:
         # 1. Тренд совпадает на обоих ТФ
-        # 2. На старшем ТФ нейтральный/слабый тренд (score между -50 и +50)
-        # СМЯГЧЕНО: разрешаем почти любой тренд
+        # 2. На старшем ТФ нейтральный тренд
+        # 3. Тренд не ярко-против (не оба таймфрейма явно против)
         higher_score = trend_higher['score']
-        is_neutral = abs(higher_score) < 60  # Нейтральный тренд если score между -60 и +60 (было 30)
+        lower_score = trend_lower['score']
         
-        aligned = (higher_direction == lower_direction) or is_neutral
+        # Нейтральный тренд если score между -30 и +30
+        is_neutral = abs(higher_score) < 30
+        
+        # Тренд совпадает
+        aligned = (higher_direction == lower_direction)
+        
+        # Не ярко-против: не оба таймфрейма явно против
+        not_strongly_against = not (abs(higher_score) > 50 and abs(lower_score) > 50 and higher_direction != lower_direction)
+        
+        # Разрешаем если: совпадает, нейтральный, или не ярко-против
+        allowed = aligned or is_neutral or not_strongly_against
         
         # Дополнительная проверка: на старшем ТФ цена должна быть выше EMA200 для лонга
         # Но если тренд нейтральный или слабый, пропускаем эту проверку
@@ -74,11 +84,11 @@ class MultiTimeframeAnalysis:
             strong_trend = price_ema_diff < 0.30  # 30% допуск (очень мягко)
         
         return {
-            'aligned': aligned and strong_trend,
+            'aligned': allowed and strong_trend,
             'higher_trend': higher_direction,
             'lower_signal': lower_direction,
             'higher_score': higher_score,
-            'lower_score': trend_lower['score'],
+            'lower_score': lower_score,
             'is_neutral': is_neutral
         }
     
@@ -100,13 +110,15 @@ class MultiTimeframeAnalysis:
         atr = last['atr']
         current_price = last['close']
         
-        # Допуск в ATR: ±3.5 ATR
-        tolerance_max = atr * 3.5
+        # Допуск в ATR: ±0.5-1 ATR (расстояние до уровня в пределах 0.5-1 ATR)
+        tolerance_min = atr * 0.5
+        tolerance_max = atr * 1.0
         
         if direction == 'LONG':
-            # Pullback к EMA50 с допуском до 3 ATR
+            # Pullback к EMA50, RSI или S/R с допуском ±0.5-1 ATR
             ema50_distance = abs(current_price - last['ema_50'])
-            near_ema50 = ema50_distance <= tolerance_max
+            # Проверяем, что цена в пределах 0.5-1 ATR от EMA50 (pullback к уровню)
+            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max
             
             # RSI в разумной зоне (не сильно перекуплен) - СМЯГЧЕНО
             rsi_ok = last['rsi'] < 75  # было много условий
@@ -117,9 +129,10 @@ class MultiTimeframeAnalysis:
             return near_ema50 or rsi_ok or price_above_ema20
         
         else:  # SHORT
-            # Pullback к EMA50 с допуском до 3 ATR
+            # Pullback к EMA50, RSI или S/R с допуском ±0.5-1 ATR
             ema50_distance = abs(current_price - last['ema_50'])
-            near_ema50 = ema50_distance <= tolerance_max
+            # Проверяем, что цена в пределах 0.5-1 ATR от EMA50 (pullback к уровню)
+            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max
             
             # RSI в разумной зоне (не сильно перепродан) - СМЯГЧЕНО
             rsi_ok = last['rsi'] > 25  # было много условий
