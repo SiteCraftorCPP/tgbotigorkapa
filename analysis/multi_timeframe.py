@@ -50,10 +50,10 @@ class MultiTimeframeAnalysis:
         
         # Разрешаем сигнал если:
         # 1. Тренд совпадает на обоих ТФ
-        # 2. На старшем ТФ нейтральный тренд (score близок к 0)
-        # 3. На старшем ТФ слабый тренд (score между -30 и +30) - ОСЛАБЛЕНО
+        # 2. На старшем ТФ нейтральный/слабый тренд (score между -50 и +50)
+        # СМЯГЧЕНО: разрешаем почти любой тренд
         higher_score = trend_higher['score']
-        is_neutral = abs(higher_score) < 30  # Нейтральный тренд если score между -30 и +30 (было 20)
+        is_neutral = abs(higher_score) < 60  # Нейтральный тренд если score между -60 и +60 (было 30)
         
         aligned = (higher_direction == lower_direction) or is_neutral
         
@@ -61,18 +61,14 @@ class MultiTimeframeAnalysis:
         # Но если тренд нейтральный или слабый, пропускаем эту проверку
         last_higher = ta_higher.df.iloc[-1]
         
-        if is_neutral:
-            strong_trend = True  # Нейтральный тренд разрешён
-        elif higher_direction == 'LONG':
-            # Для LONG: цена должна быть ВЫШЕ EMA200 (или очень близко - в пределах 2% снизу)
-            price_ema_diff = (last_higher['close'] - last_higher['ema_200']) / last_higher['ema_200']
-            # Разрешаем если цена выше EMA200 ИЛИ если цена ниже но очень близко (в пределах 2%)
-            strong_trend = last_higher['close'] > last_higher['ema_200'] or (price_ema_diff > -0.02 and price_ema_diff <= 0)
-        else:  # SHORT
-            # Для SHORT: цена должна быть НИЖЕ EMA200 (или очень близко - в пределах 2% сверху)
-            price_ema_diff = (last_higher['ema_200'] - last_higher['close']) / last_higher['ema_200']
-            # Разрешаем если цена ниже EMA200 ИЛИ если цена выше но очень близко (в пределах 2%)
-            strong_trend = last_higher['close'] < last_higher['ema_200'] or (price_ema_diff > -0.02 and price_ema_diff <= 0)
+        # СМЯГЧЕНО: разрешаем сигналы при любой позиции относительно EMA200
+        # Только проверяем что EMA200 существует
+        if 'ema_200' not in last_higher or pd.isna(last_higher['ema_200']):
+            strong_trend = True  # Если нет EMA200, пропускаем проверку
+        else:
+            # Разрешаем если цена в пределах 10% от EMA200 (было 2%)
+            price_ema_diff = abs(last_higher['close'] - last_higher['ema_200']) / last_higher['ema_200']
+            strong_trend = price_ema_diff < 0.15  # 15% допуск (очень мягко)
         
         return {
             'aligned': aligned and strong_trend,
@@ -87,10 +83,10 @@ class MultiTimeframeAnalysis:
     def check_pullback_opportunity(df: pd.DataFrame, direction: str) -> bool:
         """
         Проверка наличия pullback (коррекции к уровню)
-        Pullback к уровню (EMA50, RSI или S/R) с допуском ±0.5–1 ATR
+        СМЯГЧЕНО для увеличения количества сигналов
         """
         
-        if len(df) < 50:
+        if len(df) < 20:
             return False
         
         ta = TechnicalAnalysis(df)
@@ -101,35 +97,32 @@ class MultiTimeframeAnalysis:
         atr = last['atr']
         current_price = last['close']
         
-        # Допуск в ATR: от 0.5 до 1 ATR
-        tolerance_min = atr * 0.5
-        tolerance_max = atr * 1.0
+        # Допуск в ATR: от 0 до 3 ATR (СМЯГЧЕНО: было 0.5-1)
+        tolerance_max = atr * 3.0
         
         if direction == 'LONG':
-            # Pullback к EMA50 с допуском ±0.5–1 ATR
+            # Pullback к EMA50 с допуском до 3 ATR
             ema50_distance = abs(current_price - last['ema_50'])
-            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max or ema50_distance < tolerance_min
+            near_ema50 = ema50_distance <= tolerance_max
             
-            # RSI в зоне перепроданности или выходит из неё
-            rsi_oversold_exit = (30 < last['rsi'] < 50 and last['rsi'] > prev['rsi']) or (last['rsi'] < 40)
+            # RSI в разумной зоне (не сильно перекуплен) - СМЯГЧЕНО
+            rsi_ok = last['rsi'] < 75  # было много условий
             
-            # Pullback к поддержке (S/R) - проверяем ближайший уровень поддержки
-            # Упрощённо: если цена близка к EMA50, считаем что есть pullback
-            price_above_ema = current_price > last['ema_50'] and (current_price - last['ema_50']) <= tolerance_max
+            # Цена выше EMA20 (краткосрочный тренд вверх)
+            price_above_ema20 = current_price > last['ema_21']
             
-            return near_ema50 or rsi_oversold_exit or price_above_ema
+            return near_ema50 or rsi_ok or price_above_ema20
         
         else:  # SHORT
-            # Pullback к EMA50 с допуском ±0.5–1 ATR
+            # Pullback к EMA50 с допуском до 3 ATR
             ema50_distance = abs(current_price - last['ema_50'])
-            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max or ema50_distance < tolerance_min
+            near_ema50 = ema50_distance <= tolerance_max
             
-            # RSI в зоне перекупленности или выходит из неё
-            rsi_overbought_exit = (50 < last['rsi'] < 70 and last['rsi'] < prev['rsi']) or (last['rsi'] > 60)
+            # RSI в разумной зоне (не сильно перепродан) - СМЯГЧЕНО
+            rsi_ok = last['rsi'] > 25  # было много условий
             
-            # Pullback к сопротивлению (S/R) - проверяем ближайший уровень сопротивления
-            # Упрощённо: если цена близка к EMA50, считаем что есть pullback
-            price_below_ema = current_price < last['ema_50'] and (last['ema_50'] - current_price) <= tolerance_max
+            # Цена ниже EMA20 (краткосрочный тренд вниз)
+            price_below_ema20 = current_price < last['ema_21']
             
-            return near_ema50 or rsi_overbought_exit or price_below_ema
+            return near_ema50 or rsi_ok or price_below_ema20
 

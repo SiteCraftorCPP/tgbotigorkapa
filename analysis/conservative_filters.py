@@ -10,21 +10,21 @@ from exchange.xt_client import XTClient
 class ConservativeFilters:
     """Фильтры для отсева некачественных сигналов"""
     
-    # Константы
+    # Константы (СМЯГЧЕНЫ для увеличения количества сигналов)
     TOP_COINS_LIMIT = 200
-    MIN_VOLUME_24H = 2_500_000  # $2.5M минимум
-    MAX_SPREAD_PERCENT = 0.35  # 0.35% максимум
-    MIN_ATR_RATIO = 0.6  # Минимальная дистанция до ближайшего уровня в ATR (≥ 0.6 ATR)
-    MAX_ATR_RATIO = 4.0  # Максимальный размер стопа в ATR (≤ 4 ATR)
+    MIN_VOLUME_24H = 500_000  # $500K минимум (было $2.5M)
+    MAX_SPREAD_PERCENT = 0.5  # 0.5% максимум (было 0.35%)
+    MIN_ATR_RATIO = 0.3  # Минимальная дистанция до ближайшего уровня в ATR (≥ 0.3 ATR, было 0.6)
+    MAX_ATR_RATIO = 6.0  # Максимальный размер стопа в ATR (≤ 6 ATR, было 4)
     
     # Минимальная корреляция с BTC/ETH для альткоинов
     MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
     
-    # Channel Position Filter - адаптивные зоны
+    # Channel Position Filter - адаптивные зоны (СМЯГЧЕНЫ)
     CHANNEL_ZONES = {
-        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60},    # ATR < 1%: 40-60%
-        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65}, # ATR 1-3%: 35-65%
-        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}  # ATR > 3%: 30-70%
+        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.45, 'forbidden_max': 0.55},    # ATR < 1%: 45-55% (было 40-60%)
+        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.42, 'forbidden_max': 0.58}, # ATR 1-3%: 42-58% (было 35-65%)
+        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60}  # ATR > 3%: 40-60% (было 30-70%)
     }
     
     @staticmethod
@@ -100,38 +100,29 @@ class ConservativeFilters:
         if df.empty or len(df) < 20:
             return False
         
-        tolerance = level * 0.002  # 0.2% допуск
+        tolerance = level * 0.005  # 0.5% допуск (было 0.2%)
         
         touches = 0
-        volume_confirmed = False
         
         # Проверяем последние 50 свечей
         recent = df.tail(50)
-        avg_volume = recent['volume'].mean()
         
         for i in range(len(recent)):
             row = recent.iloc[i]
             low = row['low']
             high = row['high']
-            volume = row['volume']
             
             if direction == 'LONG':
                 # Для LONG проверяем касание уровня снизу (low)
                 if abs(low - level) <= tolerance:
                     touches += 1
-                    # Подтверждение объёмом: объём выше среднего при касании
-                    if volume > avg_volume * 1.2:
-                        volume_confirmed = True
             else:  # SHORT
                 # Для SHORT проверяем касание уровня сверху (high)
                 if abs(high - level) <= tolerance:
                     touches += 1
-                    # Подтверждение объёмом: объём выше среднего при касании
-                    if volume > avg_volume * 1.2:
-                        volume_confirmed = True
         
-        # Минимум 1 касание + подтверждение объёмом
-        return touches >= 1 and volume_confirmed
+        # Минимум 1 касание (убрано требование подтверждения объёмом)
+        return touches >= 1
     
     @staticmethod
     def check_distance_to_opposite_level(df: pd.DataFrame, entry: float, 
@@ -292,14 +283,14 @@ class ConservativeFilters:
             )
             adx = adx_indicator.adx().iloc[-1]
             
-            # Проверка: BTC движение > 1.5% за 15 мин И ADX > 20
-            if abs(btc_change_15min) > 1.5 and adx > 20:
+            # Проверка: BTC движение > 2% за 15 мин И ADX > 25 (смягчено)
+            if abs(btc_change_15min) > 2.0 and adx > 25:
                 # Если BTC сильно падает, не открываем лонги по альткоинам
-                if direction == 'LONG' and btc_change_15min < -1.5:
+                if direction == 'LONG' and btc_change_15min < -2.0:
                     return False
-                
+            
                 # Если BTC сильно растёт, не открываем шорты по альткоинам
-                if direction == 'SHORT' and btc_change_15min > 1.5:
+                if direction == 'SHORT' and btc_change_15min > 2.0:
                     return False
             
             return True

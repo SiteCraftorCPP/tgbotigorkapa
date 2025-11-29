@@ -14,11 +14,11 @@ from datetime import datetime
 class SignalGenerator:
     """Генератор ультраконсервативных торговых сигналов"""
     
-    # Минимальный RR для TP1
-    MIN_RR_RATIO = 1.2  # ≥ 1.2:1
+    # Минимальный RR для TP1 (СМЯГЧЕНО)
+    MIN_RR_RATIO = 1.0  # ≥ 1.0:1 (было 1.2)
     
-    # Минимальная дистанция между уровнями (в процентах)
-    MIN_LEVEL_DISTANCE_PERCENT = 0.1  # 0.1% минимум
+    # Минимальная дистанция между уровнями (в процентах) - СМЯГЧЕНО
+    MIN_LEVEL_DISTANCE_PERCENT = 0.03  # 0.03% минимум (было 0.1%)
     
     def __init__(self, symbol: str, timeframe: str, df: pd.DataFrame, 
                  df_higher: pd.DataFrame, client: XTClient):
@@ -64,8 +64,8 @@ class SignalGenerator:
         # Расчёт индикаторов
         self.ta.calculate_all_indicators()
         
-        if self.ta.df.empty or len(self.ta.df) < 150:
-            log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 150")
+        if self.ta.df.empty or len(self.ta.df) < 50:
+            log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 50")
             return None
         
         # МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ
@@ -84,10 +84,10 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, "Pullback", f"No pullback opportunity for {direction}")
             return None
         
-        # ПРОВЕРКА MARKET STRUCTURE (HH/HL для LONG, LH/LL для SHORT)
-        if not self._check_market_structure(direction):
-            log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Invalid structure for {direction}")
-            return None
+        # ПРОВЕРКА MARKET STRUCTURE - ОТКЛЮЧЕНО для увеличения сигналов
+        # if not self._check_market_structure(direction):
+        #     log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Invalid structure for {direction}")
+        #     return None
         
         # Получение всех сигналов
         trend = self.ta.get_trend_signal()
@@ -200,10 +200,10 @@ class SignalGenerator:
             logger.debug(f"[{self.symbol}] Invalid ATR: {atr}")
             return None
         
-        # Проверка минимального ATR (должен быть хотя бы 0.1% от цены)
-        min_atr = price * 0.001  # 0.1%
+        # Проверка минимального ATR (СМЯГЧЕНО: 0.02% от цены)
+        min_atr = price * 0.0002  # 0.02% (было 0.1%)
         if atr < min_atr:
-            logger.debug(f"[{self.symbol}] ATR too small: {atr} < {min_atr} (0.1% of price)")
+            logger.debug(f"[{self.symbol}] ATR too small: {atr} < {min_atr} (0.02% of price)")
             return None
         
         # Entry = текущая цена
@@ -221,8 +221,8 @@ class SignalGenerator:
             # Расчёт дистанции для TP
             stop_distance = entry - stop
             
-            # Проверка минимальной дистанции (0.25% от цены минимум - ослаблено с 0.5%)
-            min_distance = entry * 0.0025
+            # Проверка минимальной дистанции (СМЯГЧЕНО: 0.05% от цены)
+            min_distance = entry * 0.0005
             if stop_distance < min_distance:
                 logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
                 return None
@@ -248,8 +248,8 @@ class SignalGenerator:
             
             stop_distance = stop - entry
             
-            # Проверка минимальной дистанции (0.25% от цены минимум)
-            min_distance = entry * 0.0025
+            # Проверка минимальной дистанции (СМЯГЧЕНО: 0.05% от цены)
+            min_distance = entry * 0.0005
             if stop_distance < min_distance:
                 logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
                 return None

@@ -15,61 +15,61 @@ class MarketFilters:
     Market filters according to technical requirements
     """
     
-    # === FILTER CONSTANTS ===
+    # === FILTER CONSTANTS (СМЯГЧЕНЫ для увеличения сигналов) ===
     
     # 1. Top-200 by market cap
     TOP_COINS_LIMIT = 200
     
-    # 2. Futures volume
-    MIN_FUTURES_VOLUME_USDT = 2_500_000  # ≥ 2,500,000 USDT
+    # 2. Futures volume (СМЯГЧЕНО: было 2.5M)
+    MIN_FUTURES_VOLUME_USDT = 500_000  # ≥ 500,000 USDT
     
-    # 3. Spread
-    MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
+    # 3. Spread (СМЯГЧЕНО: было 0.35%)
+    MAX_SPREAD_PERCENT = 0.5  # ≤ 0.5%
     
-    # 4. Liquidity
-    MIN_LIQUIDITY_USDT = 80_000  # ≥ 80,000 USDT
-    LIQUIDITY_PRICE_RANGE = 0.003  # within 0.3% of price
+    # 4. Liquidity (СМЯГЧЕНО: было 80,000)
+    MIN_LIQUIDITY_USDT = 20_000  # ≥ 20,000 USDT
+    LIQUIDITY_PRICE_RANGE = 0.005  # within 0.5% of price
     
-    # 5. ATR volatility filter
-    ATR_MIN_PERCENT = 0.10  # ≥ 0.10%
-    ATR_MAX_PERCENT = 6.0   # ≤ 6.0%
+    # 5. ATR volatility filter (СМЯГЧЕНО: было 0.10%)
+    ATR_MIN_PERCENT = 0.03  # ≥ 0.03%
+    ATR_MAX_PERCENT = 8.0   # ≤ 8.0%
     
-    # 6. Gap filter (Open→Close)
-    MAX_GAP_PERCENT = 2.5  # ≤ 2.5% разрыв Open→Close
+    # 6. Gap filter (Open→Close) - СМЯГЧЕНО
+    MAX_GAP_PERCENT = 5.0  # ≤ 5.0% разрыв Open→Close (было 2.5%)
     
-    # 7. Anomaly candle 5m
-    ANOMALY_CANDLE_PERCENT = 3.0  # > 3%
-    ANOMALY_CANDLE_PAUSE_MINUTES = 15  # pause 15 min for candle anomaly
+    # 7. Anomaly candle 5m - СМЯГЧЕНО
+    ANOMALY_CANDLE_PERCENT = 5.0  # > 5% (было 3%)
+    ANOMALY_CANDLE_PAUSE_MINUTES = 5  # pause 5 min (было 15)
     
-    # 8. Anomaly volume
-    ANOMALY_VOLUME_RATIO = 2.5  # > 250% of average
-    ANOMALY_VOLUME_PAUSE_MINUTES = 10  # pause 10 min for volume anomaly
+    # 8. Anomaly volume - СМЯГЧЕНО
+    ANOMALY_VOLUME_RATIO = 4.0  # > 400% of average (было 250%)
+    ANOMALY_VOLUME_PAUSE_MINUTES = 5  # pause 5 min (было 10)
     
-    # 9. Gaps (Open→Close) legacy
+    # 9. Gaps (Open→Close) legacy - СМЯГЧЕНО
     GAP_TIMEFRAMES = ['5m', '15m']  # forbidden on 5m/15m
-    GAP_THRESHOLD = 0.008  # 0.8% considered a gap
+    GAP_THRESHOLD = 0.015  # 1.5% considered a gap (было 0.8%)
     
-    # 10. Pair cooldown
-    PAIR_COOLDOWN_MINUTES = 30  # minimum 30 min since last signal
+    # 10. Pair cooldown - СМЯГЧЕНО
+    PAIR_COOLDOWN_MINUTES = 10  # minimum 10 min since last signal (было 30)
     
-    # 11. BTC trend filter
-    BTC_ADX_MIN = 20  # ADX BTC ≥ 20
+    # 11. BTC trend filter - СМЯГЧЕНО
+    BTC_ADX_MIN = 12  # ADX BTC ≥ 12 (было 20)
     
-    # === NEW FILTERS ===
+    # === NEW FILTERS (СМЯГЧЕНЫ) ===
     
-    # 12. BTC Volatility Guard
-    BTC_VOLATILITY_THRESHOLD = 2.5  # > 2.5% за 5 мин
-    BTC_VOLATILITY_PAUSE_MINUTES = 5  # пауза 5 минут
+    # 12. BTC Volatility Guard - СМЯГЧЕНО
+    BTC_VOLATILITY_THRESHOLD = 4.0  # > 4.0% за 5 мин (было 2.5%)
+    BTC_VOLATILITY_PAUSE_MINUTES = 3  # пауза 3 минуты (было 5)
     
-    # 13. Anti-Pump Filter
-    ANTI_PUMP_THRESHOLD = 10.0  # > ±10% за 30 минут
+    # 13. Anti-Pump Filter - СМЯГЧЕНО
+    ANTI_PUMP_THRESHOLD = 15.0  # > ±15% за 30 минут (было 10%)
     ANTI_PUMP_LOOKBACK_CANDLES = 6  # 30 минут на 5m = 6 свечей
     
-    # 14. Time Guard
-    TIME_GUARD_MINUTES = 3  # первые 3 минуты каждого часа
+    # 14. Time Guard - ОТКЛЮЧЕНО
+    TIME_GUARD_MINUTES = 0  # отключено (было 3)
     
-    # 15. Time Session Filter (ОТКЛЮЧЕН - слишком строгий)
-    FORBIDDEN_HOURS_START = 25  # Отключено (25 > 24, никогда не сработает)
+    # 15. Time Session Filter - ОТКЛЮЧЕНО
+    FORBIDDEN_HOURS_START = 25  # Отключено
     FORBIDDEN_HOURS_END = -1    # Отключено
     
     # Storage for paused coins
