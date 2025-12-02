@@ -3,7 +3,7 @@ from typing import Optional, Dict
 from .indicators import TechnicalAnalysis
 from .multi_timeframe import MultiTimeframeAnalysis
 from .conservative_filters import ConservativeFilters
-from .market_filters import MarketFilters  # Рыночные фильтры
+from .market_filters import MarketFilters
 from database.config_manager import ConfigManager
 from database.risk_manager import RiskManager
 from exchange.xt_client import XTClient
@@ -12,13 +12,39 @@ import uuid
 from datetime import datetime
 
 class SignalGenerator:
-    """Генератор ультраконсервативных торговых сигналов"""
+    """Генератор торговых сигналов с полной системой фильтрации"""
     
-    # Минимальный RR для TP1
-    MIN_RR_RATIO = 1.2  # ≥ 1.2:1
+    # Минимальный RR
+    MIN_RR_RATIO = 1.8  # ≥ 1.8:1
     
-    # Минимальная дистанция между уровнями (в процентах) - СМЯГЧЕНО
-    MIN_LEVEL_DISTANCE_PERCENT = 0.03  # 0.03% минимум (было 0.1%)
+    # SL параметры
+    SL_TOLERANCE_MIN_ATR = 0.4  # SL допуск минимум 0.4 ATR
+    SL_TOLERANCE_MAX_ATR = 0.6  # SL допуск максимум 0.6 ATR
+    MAX_SL_DISTANCE_ATR = 1.6  # SL ≤ 1.6 ATR от входа
+    HIGH_VOLATILITY_THRESHOLD = 3.0  # ATR% ≥ 3.0% для расширения SL
+    HIGH_VOLATILITY_SL_EXTENSION = 0.8  # При высокой волатильности до 0.8 ATR
+    
+    # TP параметры
+    TP1_MIN_ATR = 1.0
+    TP1_MAX_ATR = 1.3
+    TP2_MIN_ATR = 2.0
+    TP2_MAX_ATR = 2.6
+    
+    # Тренд и структура
+    MAX_EMA50_DISTANCE_ATR = 2.0  # Расстояние от EMA50 ≤ 2 ATR
+    MAX_EMA50_DEVIATION_ATR = 2.2  # Отклонение от EMA50 ≤ 2.2 ATR
+    PULLBACK_MIN_ATR = 0.3
+    PULLBACK_MAX_ATR = 0.6
+    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей в направлении
+    
+    # Свеча сигнала
+    SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
+    SIGNAL_CANDLE_BODY_MAX_MULTIPLIER = 1.8  # ≤ 1.8× среднего
+    SIGNAL_VOLUME_MULTIPLIER = 1.15  # Объём ≥ 1.15× среднего
+    
+    # Импульс
+    IMPULSE_BODY_RATIO = 0.60  # Тело импульсной свечи ≥ 60%
+    CANCEL_IMPULSE_MULTIPLIER = 1.3  # Отмена при обратном импульсе ≥ 1.3×
     
     def __init__(self, symbol: str, timeframe: str, df: pd.DataFrame, 
                  df_higher: pd.DataFrame, client: XTClient):
@@ -30,9 +56,9 @@ class SignalGenerator:
         self.ta = TechnicalAnalysis(df)
     
     def _get_price_precision(self, price: float) -> int:
-        """Определяет количество знаков после запятой для округления цены"""
+        """Определяет количество знаков после запятой"""
         if price >= 1000:
-            return 2  # BTC, ETH - 2 знака
+            return 2
         elif price >= 100:
             return 3
         elif price >= 10:
@@ -44,15 +70,15 @@ class SignalGenerator:
         elif price >= 0.01:
             return 7
         else:
-            return 8  # Очень дешёвые монеты
+            return 8
     
     def _round_price(self, price: float, reference_price: float) -> float:
-        """Округление цены с учётом её величины"""
+        """Округление цены"""
         precision = self._get_price_precision(reference_price)
         return round(price, precision)
         
     async def generate_signal(self) -> Optional[Dict]:
-        """Генерация ультраконсервативного сигнала"""
+        """Генерация сигнала с полной валидацией всех фильтров"""
         from utils.logger import log_filter_block, log_filter_pass
         
         # ФИЛЬТР РИСК-МЕНЕДЖМЕНТА
@@ -68,8 +94,7 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 150")
             return None
         
-        # МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ
-        # Тренд совпадает, нейтральный или не ярко-против
+        # === МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ ===
         mtf = MultiTimeframeAnalysis.check_trend_alignment(self.df_higher, self.df)
         
         if not mtf.get('aligned', False):
@@ -77,71 +102,82 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", mtf_reason)
             return None
         
-        # Определяем направление сигнала из тренда (приоритет у higher_trend)
+        # Определяем направление сигнала
         direction = mtf.get('higher_trend') if mtf.get('higher_trend') else mtf.get('lower_signal')
         
-        # Если нет направления, пропускаем
         if not direction:
             log_filter_block(self.symbol, self.timeframe, "MTF_Alignment", "No trend direction found")
             return None
         
-        # ПРОВЕРКА PULLBACK (коррекция к уровню) с допуском ±0.5-1 ATR
-        if not MultiTimeframeAnalysis.check_pullback_opportunity(self.df, direction):
-            log_filter_block(self.symbol, self.timeframe, "Pullback", f"No pullback opportunity for {direction}")
+        # === ПРОВЕРКА ЗАПРЕТА ВХОДА ПРОТИВ ТРЕНДА H1 ===
+        if not self._check_h1_trend_alignment(direction):
+            log_filter_block(self.symbol, self.timeframe, "H1_Trend", f"Entry against H1 trend for {direction}")
             return None
         
-        # ПРОВЕРКА MARKET STRUCTURE: запрет только при противоположной структуре
+        # === МИНИ-ТРЕНД: 3 из 4 свечей в направлении ===
+        if not self._check_mini_trend(direction):
+            log_filter_block(self.symbol, self.timeframe, "MiniTrend", f"Less than 3/4 candles in {direction} direction")
+            return None
+        
+        # === РАССТОЯНИЕ ОТ EMA50 ≤ 2 ATR ===
+        if not self._check_ema50_distance():
+            log_filter_block(self.symbol, self.timeframe, "EMA50_Distance", "Price too far from EMA50")
+            return None
+        
+        # === PULLBACK В ДИАПАЗОНЕ 0.3-0.6 ATR ===
+        if not self._check_pullback(direction):
+            log_filter_block(self.symbol, self.timeframe, "Pullback", f"Pullback not in range 0.3-0.6 ATR for {direction}")
+            return None
+        
+        # === ПРОВЕРКА MARKET STRUCTURE (HH/HL для LONG, LL/LH для SHORT) ===
         if not self._check_market_structure(direction):
-            log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Opposite market structure for {direction}")
+            log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Invalid structure for {direction}")
             return None
         
-        # Получение всех сигналов
-        trend = self.ta.get_trend_signal()
-        momentum = self.ta.get_momentum_signal()
-        volume = self.ta.get_volume_signal()
-        volatility = self.ta.get_volatility_score()
-        levels = self.ta.calculate_support_resistance()
+        # === ИМПУЛЬСНАЯ СВЕЧА ===
+        if not self._check_impulse_candle(direction):
+            log_filter_block(self.symbol, self.timeframe, "ImpulseCandle", "No valid impulse candle")
+            return None
         
-        # Текущая цена
+        # === СВЕЧА СИГНАЛА ===
+        if not self._check_signal_candle():
+            log_filter_block(self.symbol, self.timeframe, "SignalCandle", "Signal candle validation failed")
+            return None
+        
+        # Текущая цена и ATR
         current_price = self.ta.df.iloc[-1]['close']
         atr = self.ta.df.iloc[-1]['atr']
+        levels = self.ta.calculate_support_resistance()
         
-        # Расчёт уровней входа/выхода (с 3 TP, RR ≥ 1.25)
-        signal_params = self._calculate_levels(
-            direction,
-            current_price,
-            atr,
-            levels
-        )
-        
-        if not signal_params:
-            # Детальная причина: проверяем почему уровни не прошли
-            stop_distance = atr * 2.0
-            rr = (stop_distance * 1.5) / stop_distance if stop_distance > 0 else 0
-            atr_pct = (atr / current_price * 100) if current_price > 0 else 0
-            log_filter_block(
-                self.symbol, self.timeframe, "LevelCalculation", 
-                f"Invalid levels for {direction} | Price: {current_price:.6f}, ATR: {atr:.6f} ({atr_pct:.3f}%), Stop dist: {stop_distance:.6f}"
-            )
-            return None
-        
-        # === MARKET FILTERS (STRICT) ===
+        # === MARKET FILTERS ===
         market_filters_result = await MarketFilters.check_all_filters(
             self.symbol,
             self.timeframe,
             self.df,
             self.client,
-            direction  # Pass direction for BTC trend filter
+            direction
         )
         
         if not market_filters_result['passed']:
             log_filter_block(self.symbol, self.timeframe, f"MarketFilter:{market_filters_result['reason'].split()[0]}", market_filters_result['reason'])
             return None
         
-        # Получаем ATR% для Channel Position Filter
         atr_percent = market_filters_result.get('atr_percent')
         
-        # Дополнительные консервативные фильтры (с передачей atr_percent)
+        # === РАСЧЁТ УРОВНЕЙ ===
+        signal_params = self._calculate_levels(
+            direction,
+            current_price,
+            atr,
+            levels,
+            atr_percent
+        )
+        
+        if not signal_params:
+            log_filter_block(self.symbol, self.timeframe, "LevelCalculation", f"Invalid levels for {direction}")
+            return None
+        
+        # === CONSERVATIVE FILTERS ===
         filters_result = await ConservativeFilters.check_all_filters(
             self.symbol, 
             self.df, 
@@ -150,7 +186,7 @@ class SignalGenerator:
             atr,
             direction,
             self.client,
-            atr_percent  # Для Channel Position Filter
+            atr_percent
         )
         
         if not filters_result['passed']:
@@ -158,10 +194,27 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, "ConservativeFilter", reasons)
             return None
         
+        # === ПРОВЕРКА ЛИКВИДНОСТИ В ЗОНЕ SL ===
+        sl_liquidity = await self._check_sl_liquidity(signal_params['stop'])
+        if not sl_liquidity['passed']:
+            log_filter_block(self.symbol, self.timeframe, "SL_Liquidity", sl_liquidity['reason'])
+            return None
+        
+        # === ПРОВЕРКА ОТКЛОНЕНИЯ ОТ EMA50 ≤ 2.2 ATR ===
+        if not self._check_ema50_deviation(current_price, atr):
+            log_filter_block(self.symbol, self.timeframe, "EMA50_Deviation", "Price deviation from EMA50 > 2.2 ATR")
+            return None
+        
         # ВСЕ ФИЛЬТРЫ ПРОЙДЕНЫ
         log_filter_pass(self.symbol, self.timeframe)
         
-        # Формирование сигнала с расширенными данными
+        # Получение дополнительных данных
+        trend = self.ta.get_trend_signal()
+        momentum = self.ta.get_momentum_signal()
+        volume = self.ta.get_volume_signal()
+        volatility = self.ta.get_volatility_score()
+        
+        # Формирование сигнала
         signal = {
             'signal_id': str(uuid.uuid4())[:8],
             'ticker': self.symbol,
@@ -172,15 +225,15 @@ class SignalGenerator:
             'stop_loss': signal_params['stop'],
             'take_profit_1': signal_params['tp1'],
             'take_profit_2': signal_params['tp2'],
-            'take_profit_3': signal_params['tp3'],
-            'take_profit_4': signal_params['tp4'],
+            'take_profit_3': signal_params['tp2'],  # TP3 = TP2 для совместимости
+            'take_profit_4': signal_params['tp2'],  # TP4 = TP2 для совместимости
             'risk_percent': RiskManager.MAX_RISK_PER_TRADE,
             'leverage': ConfigManager.get_leverage(),
             'created_at': datetime.utcnow(),
-            'volume_24h': market_filters_result['volume_24h'],  # Из рыночных фильтров
-            'spread_percent': market_filters_result['spread'],  # Из рыночных фильтров
+            'volume_24h': market_filters_result['volume_24h'],
+            'spread_percent': market_filters_result['spread'],
             'atr_value': atr,
-            'liquidity_usdt': market_filters_result.get('liquidity'),  # Ликвидность
+            'liquidity_usdt': market_filters_result.get('liquidity'),
             'analysis': {
                 'trend': trend,
                 'momentum': momentum,
@@ -193,207 +246,396 @@ class SignalGenerator:
         
         return signal
     
-    def _calculate_levels(self, direction: str, price: float, atr: float, levels: dict) -> Optional[Dict]:
-        """Расчёт уровней входа, стопа и 3 тейк-профитов"""
-        from utils.logger import logger
-        
-        # Валидация входных данных
-        if price <= 0:
-            logger.debug(f"[{self.symbol}] Invalid price: {price}")
-            return None
-        
-        if atr <= 0:
-            logger.debug(f"[{self.symbol}] Invalid ATR: {atr}")
-            return None
-        
-        # Проверка минимального ATR (СМЯГЧЕНО: 0.02% от цены)
-        min_atr = price * 0.0002  # 0.02% (было 0.1%)
-        if atr < min_atr:
-            logger.debug(f"[{self.symbol}] ATR too small: {atr} < {min_atr} (0.02% of price)")
-            return None
-        
-        # Entry = текущая цена
-        entry = price
-        
-        if direction == 'LONG':
-            # Stop loss на 2 ATR ниже (ультраконсервативно)
-            stop = entry - (atr * 2.0)
-            
-            # Проверка, что stop не отрицательный
-            if stop <= 0:
-                logger.debug(f"[{self.symbol}] Stop <= 0 for LONG: {stop}")
-                return None
-            
-            # Расчёт дистанции для TP
-            stop_distance = entry - stop
-            
-            # Проверка минимальной дистанции (СМЯГЧЕНО: 0.05% от цены)
-            min_distance = entry * 0.0005
-            if stop_distance < min_distance:
-                logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
-                return None
-            
-            # 3 уровня TP с увеличивающейся дистанцией
-            tp1 = entry + (stop_distance * 1.5)  # RR 1.5:1
-            tp2 = entry + (stop_distance * 2.5)  # RR 2.5:1
-            tp3 = entry + (stop_distance * 3.5)  # RR 3.5:1
-            
-            # Проверка, что не пробиваем сопротивление
-            if tp3 > levels['resistance'] * 1.02:
-                tp3 = levels['resistance'] * 0.99
-                # Пересчитываем остальные TP пропорционально
-                total_distance = tp3 - entry
-                if total_distance <= 0:
-                    return None
-                tp1 = entry + (total_distance * 0.4)
-                tp2 = entry + (total_distance * 0.7)
-                
-        else:  # SHORT
-            # Stop loss на 2 ATR выше
-            stop = entry + (atr * 2.0)
-            
-            stop_distance = stop - entry
-            
-            # Проверка минимальной дистанции (СМЯГЧЕНО: 0.05% от цены)
-            min_distance = entry * 0.0005
-            if stop_distance < min_distance:
-                logger.debug(f"[{self.symbol}] Stop distance too small: {stop_distance} < {min_distance}")
-                return None
-            
-            tp1 = entry - (stop_distance * 1.5)
-            tp2 = entry - (stop_distance * 2.5)
-            tp3 = entry - (stop_distance * 3.5)
-            
-            # Проверка, что TP не отрицательные
-            if tp3 <= 0:
-                logger.debug(f"[{self.symbol}] TP3 <= 0 for SHORT: {tp3}")
-                return None
-            
-            # Проверка, что не пробиваем поддержку
-            if tp3 < levels['support'] * 0.98:
-                tp3 = levels['support'] * 1.01
-                total_distance = entry - tp3
-                if total_distance <= 0:
-                    return None
-                tp1 = entry - (total_distance * 0.4)
-                tp2 = entry - (total_distance * 0.7)
-        
-        # Округление с учётом величины цены
-        entry = self._round_price(entry, price)
-        stop = self._round_price(stop, price)
-        tp1 = self._round_price(tp1, price)
-        tp2 = self._round_price(tp2, price)
-        tp3 = self._round_price(tp3, price)
-        
-        # КРИТИЧЕСКАЯ ПРОВЕРКА: все уровни должны быть РАЗНЫМИ после округления
-        all_levels = [entry, stop, tp1, tp2, tp3]
-        if len(set(all_levels)) < len(all_levels):
-            logger.warning(f"[{self.symbol}] Duplicate levels after rounding: entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
-            return None
-        
-        # Валидация порядка уровней
-        if direction == 'LONG':
-            if not (stop < entry < tp1 < tp2 < tp3):
-                logger.debug(f"[{self.symbol}] Invalid LONG level order: stop={stop}, entry={entry}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
-                return None
-        else:
-            if not (stop > entry > tp1 > tp2 > tp3):
-                logger.debug(f"[{self.symbol}] Invalid SHORT level order: stop={stop}, entry={entry}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
-                return None
-        
-        # Проверка минимальной дистанции между уровнями (в процентах)
-        min_dist_pct = self.MIN_LEVEL_DISTANCE_PERCENT / 100
-        
-        def check_distance(level1, level2, name1, name2):
-            dist_pct = abs(level1 - level2) / entry
-            if dist_pct < min_dist_pct:
-                logger.debug(f"[{self.symbol}] Distance {name1}-{name2} too small: {dist_pct*100:.4f}% < {self.MIN_LEVEL_DISTANCE_PERCENT}%")
-                return False
+    def _check_h1_trend_alignment(self, direction: str) -> bool:
+        """Запрет входа против тренда H1"""
+        if self.df_higher.empty or len(self.df_higher) < 50:
             return True
         
-        if not check_distance(entry, stop, "entry", "stop"):
-            return None
-        if not check_distance(entry, tp1, "entry", "tp1"):
-            return None
-        if not check_distance(tp1, tp2, "tp1", "tp2"):
-            return None
-        if not check_distance(tp2, tp3, "tp2", "tp3"):
-            return None
+        ta_higher = TechnicalAnalysis(self.df_higher)
+        ta_higher.calculate_all_indicators()
+        trend = ta_higher.get_trend_signal()
         
-        # Проверка минимального RR (≥ 1.25:1 для TP1)
-        risk = abs(entry - stop)
-        reward = abs(tp1 - entry)
-        
-        if risk <= 0 or reward <= 0:
-            logger.debug(f"[{self.symbol}] Invalid risk/reward: risk={risk}, reward={reward}")
-            return None
-        
-        rr_ratio = reward / risk
-        if rr_ratio < self.MIN_RR_RATIO:
-            logger.debug(f"[{self.symbol}] RR ratio too low: {rr_ratio:.2f} < {self.MIN_RR_RATIO}")
-            return None
-        
-        # TP4 = TP3 (для обратной совместимости, но не используется в сообщении)
-        tp4 = tp3
-        
-        return {
-            'entry': entry,
-            'stop': stop,
-            'tp1': tp1,
-            'tp2': tp2,
-            'tp3': tp3,
-            'tp4': tp4  # Для совместимости
-        }
-
-    def _check_market_structure(self, direction: str) -> bool:
-        """
-        Проверка структуры рынка (HH/HL для LONG, LH/LL для SHORT)
-        
-        LONG: Higher Highs и Higher Lows (восходящий тренд)
-        SHORT: Lower Highs и Lower Lows (нисходящий тренд)
-        """
-        if len(self.df) < 150:
+        # Если тренд сильный и противоположный - блокируем
+        if abs(trend['score']) > 40 and trend['direction'] != direction:
             return False
         
-        # Берём последние 30 свечей для анализа
+        return True
+    
+    def _check_mini_trend(self, direction: str) -> bool:
+        """Мини-тренд: минимум 3 из последних 4 свечей в направлении сигнала"""
+        if len(self.df) < 4:
+            return False
+        
+        recent = self.df.tail(4)
+        count = 0
+        
+        for idx, row in recent.iterrows():
+            if direction == 'LONG' and row['close'] > row['open']:
+                count += 1
+            elif direction == 'SHORT' and row['close'] < row['open']:
+                count += 1
+        
+        return count >= self.MIN_TREND_CANDLES
+    
+    def _check_ema50_distance(self) -> bool:
+        """Расстояние от EMA50 ≤ 2 ATR"""
+        last = self.ta.df.iloc[-1]
+        
+        if 'ema_50' not in last or 'atr' not in last:
+            return True
+        
+        # Проверка на NaN
+        if pd.isna(last['ema_50']) or pd.isna(last['atr']) or last['atr'] == 0:
+            return True
+        
+        distance = abs(last['close'] - last['ema_50'])
+        max_distance = last['atr'] * self.MAX_EMA50_DISTANCE_ATR
+        
+        return distance <= max_distance
+    
+    def _check_pullback(self, direction: str) -> bool:
+        """Pullback в диапазоне 0.3-0.6 ATR"""
+        if len(self.df) < 20:
+            return True  # Если недостаточно данных, пропускаем фильтр
+        
+        last = self.ta.df.iloc[-1]
+        atr = last['atr']
+        
+        if atr == 0:
+            return True
+        
+        current_price = last['close']
+        
+        # Находим последний экстремум за последние 20 свечей
+        recent = self.df.tail(20)
+        
+        if direction == 'LONG':
+            # Для лонга: ищем откат от локального максимума
+            # Исключаем текущую свечу из поиска максимума
+            recent_excl_last = recent.iloc[:-1]
+            if len(recent_excl_last) > 0:
+                local_high = recent_excl_last['high'].max()
+                pullback = local_high - current_price
+            else:
+                return True  # Недостаточно данных
+        else:
+            # Для шорта: ищем откат от локального минимума
+            recent_excl_last = recent.iloc[:-1]
+            if len(recent_excl_last) > 0:
+                local_low = recent_excl_last['low'].min()
+                pullback = current_price - local_low
+            else:
+                return True  # Недостаточно данных
+        
+        min_pullback = atr * self.PULLBACK_MIN_ATR
+        max_pullback = atr * self.PULLBACK_MAX_ATR
+        
+        # Pullback должен быть в диапазоне 0.3-0.6 ATR
+        return min_pullback <= pullback <= max_pullback
+    
+    def _check_market_structure(self, direction: str) -> bool:
+        """
+        Проверка структуры рынка:
+        - Для лонга: HH + HL желательны (но не строго обязательны)
+        - Для шорта: LL + LH желательны (но не строго обязательны)
+        - Запрещаем только явную противоположную структуру
+        """
+        if len(self.df) < 30:
+            return True  # Недостаточно данных - пропускаем
+        
         recent = self.df.tail(30)
         
-        # Находим локальные максимумы и минимумы (с окном 5)
+        # Находим локальные максимумы и минимумы
         window = 5
         highs = []
         lows = []
         
         for i in range(window, len(recent) - window):
-            # Локальный максимум
             if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
                 highs.append(recent.iloc[i]['high'])
             
-            # Локальный минимум
             if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
                 lows.append(recent.iloc[i]['low'])
         
-        # Нужно минимум 2 точки для анализа
         if len(highs) < 2 or len(lows) < 2:
-            return True  # Недостаточно данных - пропускаем фильтр
+            return True  # Недостаточно экстремумов - пропускаем
         
-        # Анализ структуры
-        # Запрет только при противоположной структуре
         if direction == 'LONG':
-            # Для LONG: запрещаем только если явная противоположная структура (LH/LL)
-            lower_highs = highs[-1] < highs[-2]
-            lower_lows = lows[-1] < lows[-2]
-            # Блокируем только если ОБА условия противоположной структуры выполнены
-            if lower_highs and lower_lows:
-                return False
-            # В остальных случаях разрешаем (HH/HL или нейтральная структура)
+            # Для лонга: запрещаем только явную противоположную структуру (LL + LH)
+            lower_low = lows[-1] < lows[-2]
+            lower_high = highs[-1] < highs[-2]
+            if lower_low and lower_high:
+                return False  # Явная медвежья структура - запрещаем
+            return True  # В остальных случаях разрешаем
+        else:
+            # Для шорта: запрещаем только явную противоположную структуру (HH + HL)
+            higher_high = highs[-1] > highs[-2]
+            higher_low = lows[-1] > lows[-2]
+            if higher_high and higher_low:
+                return False  # Явная бычья структура - запрещаем
+            return True  # В остальных случаях разрешаем
+    
+    def _check_impulse_candle(self, direction: str) -> bool:
+        """Минимум 1 импульсная свеча с телом ≥ 60%"""
+        if len(self.df) < 10:
+            return False
+        
+        recent = self.df.tail(10)
+        
+        for idx, row in recent.iterrows():
+            body = abs(row['close'] - row['open'])
+            full_range = row['high'] - row['low']
+            
+            if full_range == 0:
+                continue
+            
+            body_ratio = body / full_range
+            
+            # Импульс в нужном направлении
+            is_bullish = row['close'] > row['open']
+            is_bearish = row['close'] < row['open']
+            
+            if body_ratio >= self.IMPULSE_BODY_RATIO:
+                if direction == 'LONG' and is_bullish:
+                    return True
+                if direction == 'SHORT' and is_bearish:
+                    return True
+        
+        return False
+    
+    def _check_signal_candle(self) -> bool:
+        """
+        Свеча сигнала:
+        - Тело ≥ 60% (желательно, но не обязательно)
+        - Тело ≤ 1.8× среднего за 20 свечей (не слишком большая)
+        - Объём ≥ 1.15× среднего за 20 свечей (желательно, но не обязательно)
+        """
+        if len(self.df) < 20:
+            return True  # Если недостаточно данных, пропускаем
+        
+        last = self.df.iloc[-1]
+        recent_20 = self.df.tail(20)
+        
+        # Тело свечи
+        body = abs(last['close'] - last['open'])
+        full_range = last['high'] - last['low']
+        
+        if full_range == 0:
+            return True  # Додж-свеча, пропускаем
+        
+        body_ratio = body / full_range
+        
+        # Проверяем, что свеча не слишком большая (аномалия)
+        avg_body = (recent_20['close'] - recent_20['open']).abs().mean()
+        
+        if avg_body > 0 and body > avg_body * self.SIGNAL_CANDLE_BODY_MAX_MULTIPLIER:
+            return False  # Свеча слишком большая - аномалия
+        
+        # Объём - желательно выше среднего, но не критично
+        avg_volume = recent_20['volume'].mean()
+        
+        # Если объём слишком низкий (< 50% среднего) - это подозрительно
+        if avg_volume > 0 and last['volume'] < avg_volume * 0.5:
+            return False  # Слишком низкий объём - подозрительно
+        
+        return True
+    
+    def _check_ema50_deviation(self, current_price: float, atr: float) -> bool:
+        """Отклонение цены от EMA50 ≤ 2.2 ATR"""
+        last = self.ta.df.iloc[-1]
+        
+        if 'ema_50' not in last or atr == 0:
             return True
         
-        else:  # SHORT
-            # Для SHORT: запрещаем только если явная противоположная структура (HH/HL)
-            higher_highs = highs[-1] > highs[-2]
-            higher_lows = lows[-1] > lows[-2]
-            # Блокируем только если ОБА условия противоположной структуры выполнены
-            if higher_highs and higher_lows:
-                return False
-            # В остальных случаях разрешаем (LH/LL или нейтральная структура)
+        # Проверка на NaN
+        if pd.isna(last['ema_50']):
             return True
+        
+        deviation = abs(current_price - last['ema_50'])
+        max_deviation = atr * self.MAX_EMA50_DEVIATION_ATR
+        
+        return deviation <= max_deviation
+    
+    async def _check_sl_liquidity(self, stop_price: float) -> Dict:
+        """Ликвидность в зоне SL ≥ 90,000 USDT (в пределах ±0.5%)"""
+        result = {'passed': False, 'reason': ''}
+        
+        try:
+            orderbook = await self.client.get_orderbook(self.symbol, limit=50)
+            if not orderbook:
+                result['passed'] = True
+                return result
+            
+            bids = orderbook.get('bids', [])
+            asks = orderbook.get('asks', [])
+            
+            if not bids or not asks:
+                result['passed'] = True
+                return result
+            
+            price_range = stop_price * 0.005  # ±0.5%
+            min_price = stop_price - price_range
+            max_price = stop_price + price_range
+            
+            liquidity = 0
+            
+            try:
+                for price, volume in bids:
+                    price = float(price)
+                    volume = float(volume)
+                    if min_price <= price <= max_price:
+                        liquidity += price * volume
+                
+                for price, volume in asks:
+                    price = float(price)
+                    volume = float(volume)
+                    if min_price <= price <= max_price:
+                        liquidity += price * volume
+            except (ValueError, TypeError, IndexError) as e:
+                result['passed'] = True
+                return result
+            
+            min_liquidity = 90000  # 90,000 USDT
+            
+            if liquidity < min_liquidity:
+                result['reason'] = f"SL zone liquidity {liquidity:,.0f} < {min_liquidity:,.0f} USDT"
+                return result
+            
+            result['passed'] = True
+            return result
+            
+        except Exception as e:
+            result['passed'] = True
+            return result
+    
+    def _calculate_levels(self, direction: str, price: float, atr: float, 
+                         levels: dict, atr_percent: float = None) -> Optional[Dict]:
+        """
+        Расчёт уровней:
+        - SL за последним HL/LH с допуском 0.4-0.6 ATR
+        - SL ≤ 1.6 ATR от точки входа
+        - При ATR% ≥ 3.0% допускается расширение SL до 0.7-0.8 ATR
+        - TP1 = 1.0-1.3 ATR
+        - TP2 = 2.0-2.6 ATR
+        - Минимальный RR ≥ 1.8:1
+        """
+        from utils.logger import logger
+        
+        if price <= 0 or atr <= 0:
+            return None
+        
+        entry = price
+        
+        # Определяем допуск SL в зависимости от волатильности
+        if atr_percent and atr_percent >= self.HIGH_VOLATILITY_THRESHOLD:
+            sl_tolerance = atr * self.HIGH_VOLATILITY_SL_EXTENSION
+        else:
+            sl_tolerance = atr * ((self.SL_TOLERANCE_MIN_ATR + self.SL_TOLERANCE_MAX_ATR) / 2)
+        
+        # Находим последний HL/LH для размещения SL
+        last_swing = self._find_last_swing(direction)
+        
+        if direction == 'LONG':
+            # SL за последним HL
+            if last_swing:
+                stop = last_swing - sl_tolerance
+            else:
+                stop = entry - (atr * self.MAX_SL_DISTANCE_ATR)
+            
+            # Проверка максимальной дистанции SL
+            if entry - stop > atr * self.MAX_SL_DISTANCE_ATR:
+                stop = entry - (atr * self.MAX_SL_DISTANCE_ATR)
+            
+            if stop <= 0:
+                return None
+            
+            stop_distance = entry - stop
+            
+            # TP рассчитывается от stop_distance для правильного RR
+            # TP1 = 1.0-1.3 ATR от entry (минимум 1.8× stop_distance для RR ≥ 1.8:1)
+            tp1_atr = atr * ((self.TP1_MIN_ATR + self.TP1_MAX_ATR) / 2)
+            tp1_min_rr = entry + (stop_distance * self.MIN_RR_RATIO)
+            tp1 = max(entry + tp1_atr, tp1_min_rr)  # Берём максимум для обеспечения RR
+            
+            # TP2 = 2.0-2.6 ATR от entry
+            tp2 = entry + (atr * ((self.TP2_MIN_ATR + self.TP2_MAX_ATR) / 2))
+                
+        else:  # SHORT
+            # SL за последним LH
+            if last_swing:
+                stop = last_swing + sl_tolerance
+            else:
+                stop = entry + (atr * self.MAX_SL_DISTANCE_ATR)
+            
+            # Проверка максимальной дистанции SL
+            if stop - entry > atr * self.MAX_SL_DISTANCE_ATR:
+                stop = entry + (atr * self.MAX_SL_DISTANCE_ATR)
+            
+            stop_distance = stop - entry
+            
+            # TP рассчитывается от stop_distance для правильного RR
+            # TP1 = 1.0-1.3 ATR от entry (минимум 1.8× stop_distance для RR ≥ 1.8:1)
+            tp1_atr = atr * ((self.TP1_MIN_ATR + self.TP1_MAX_ATR) / 2)
+            tp1_min_rr = entry - (stop_distance * self.MIN_RR_RATIO)
+            tp1 = min(entry - tp1_atr, tp1_min_rr)  # Берём минимум для обеспечения RR
+            
+            # TP2 = 2.0-2.6 ATR от entry
+            tp2 = entry - (atr * ((self.TP2_MIN_ATR + self.TP2_MAX_ATR) / 2))
+            
+            if tp2 <= 0:
+                return None
+        
+        # Проверка RR
+        risk = stop_distance
+        reward = abs(tp1 - entry)
+        
+        if risk <= 0 or reward <= 0:
+            return None
+        
+        rr_ratio = reward / risk
+        
+        if rr_ratio < self.MIN_RR_RATIO:
+            logger.debug(f"[{self.symbol}] RR ratio {rr_ratio:.2f} < {self.MIN_RR_RATIO}")
+            return None
+        
+        # Округление
+        entry = self._round_price(entry, price)
+        stop = self._round_price(stop, price)
+        tp1 = self._round_price(tp1, price)
+        tp2 = self._round_price(tp2, price)
+        
+        # Валидация порядка уровней
+        if direction == 'LONG':
+            if not (stop < entry < tp1 < tp2):
+                return None
+        else:
+            if not (stop > entry > tp1 > tp2):
+                return None
+        
+        return {
+            'entry': entry,
+            'stop': stop,
+            'tp1': tp1,
+            'tp2': tp2
+        }
+    
+    def _find_last_swing(self, direction: str) -> Optional[float]:
+        """Найти последний swing (HL для LONG, LH для SHORT)"""
+        if len(self.df) < 20:
+            return None
+        
+        recent = self.df.tail(20)
+        window = 3
+        
+        if direction == 'LONG':
+            # Ищем последний Higher Low
+            for i in range(len(recent) - window - 1, window, -1):
+                if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
+                    return recent.iloc[i]['low']
+        else:
+            # Ищем последний Lower High
+            for i in range(len(recent) - window - 1, window, -1):
+                if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
+                    return recent.iloc[i]['high']
+        
+        return None

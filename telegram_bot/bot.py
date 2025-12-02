@@ -7,6 +7,7 @@ from database.config_manager import ConfigManager
 from database.admin_manager import AdminManager
 from database.user_preferences import UserPreferenceManager
 from .languages import t, get_user_lang
+from .filter_panel import FilterPanel, FilterSettings, handle_filter_panel_callback
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from functools import wraps
@@ -79,6 +80,10 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("dbstats", self.cmd_db_stats))  # Статистика БД
         self.app.add_handler(CommandHandler("cleanup", self.cmd_cleanup_db))  # Очистка БД
         
+        # Команда панели управления фильтрами
+        self.app.add_handler(CommandHandler("filters", self.cmd_filters))  # Панель фильтров
+        self.app.add_handler(CommandHandler("panel", self.cmd_filters))  # Альтернатива
+        
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         
@@ -91,7 +96,7 @@ class TelegramBot:
             print(f"[DEBUG] Unknown command received: {command}")
             await update.message.reply_text(f"Unknown command: {command}")
         
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|dbstats|cleanup|help)"), unknown_command))
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
@@ -347,9 +352,19 @@ class TelegramBot:
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка нажатий на кнопки"""
         query = update.callback_query
-        await query.answer()
         
         user_id = str(update.effective_user.id)
+        
+        # Обработка панели фильтров (только для админов)
+        if query.data.startswith("fp_") or query.data == "noop":
+            # Проверяем права админа
+            if not AdminManager.is_admin(user_id):
+                await query.answer("⛔ Доступ запрещён", show_alert=True)
+                return
+            await handle_filter_panel_callback(update, context)
+            return
+        
+        await query.answer()
         
         # Обработка выбора языка
         if query.data.startswith("lang_"):
@@ -877,6 +892,35 @@ class TelegramBot:
             
         except Exception as e:
             await update.message.reply_text(f"Error: {str(e)}")
+    
+    @admin_only
+    async def cmd_filters(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Панель управления фильтрами"""
+        try:
+            user_id = str(update.effective_user.id)
+            lang = get_user_lang(user_id)
+            
+            # Загружаем текущие настройки
+            FilterSettings.get_all()
+            
+            message = """
+⚙️ *ПАНЕЛЬ УПРАВЛЕНИЯ ФИЛЬТРАМИ*
+
+Здесь вы можете настроить все параметры фильтрации сигналов.
+
+📊 Выберите категорию для настройки:
+"""
+            
+            await update.message.reply_text(
+                message.strip(),
+                reply_markup=FilterPanel.get_main_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def run(self):
         """Запуск бота"""

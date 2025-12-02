@@ -1,85 +1,160 @@
 """
 Market filters for signal generation
-Strict criteria for HIGH-QUALITY signals
+STRICT criteria for HIGH-QUALITY signals
+Updated: Full filter implementation
 """
 
 import pandas as pd
-from typing import Optional, Dict, Tuple
+import numpy as np
+from typing import Optional, Dict, Tuple, List
 from datetime import datetime, timedelta
 from exchange.xt_client import XTClient
 from ta.trend import EMAIndicator, ADXIndicator
+from ta.volatility import AverageTrueRange
 
 
 class MarketFilters:
     """
-    Market filters according to technical requirements
+    Complete Market Filters Implementation
     """
     
-    # === FILTER CONSTANTS (СМЯГЧЕНЫ для увеличения сигналов) ===
+    # ========================================================================
+    # ФИЛЬТРЫ РЫНКА
+    # ========================================================================
     
-    # 1. Top-200 by market cap
-    TOP_COINS_LIMIT = 200
+    # Капитализация
+    TOP_COINS_LIMIT = 200  # топ-200
     
-    # 2. Futures volume
-    MIN_FUTURES_VOLUME_USDT = 2_500_000  # ≥ 2,500,000 USDT
+    # Объём фьючерсов 24h
+    MIN_FUTURES_VOLUME_USDT = 3_000_000  # ≥ 3,000,000 USDT
     
-    # 3. Spread
-    MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
+    # Объём 60m относительно 24h
+    MIN_VOLUME_60M_RATIO = 0.012  # ≥ 1.2% от 24h
     
-    # 4. Liquidity
-    MIN_LIQUIDITY_USDT = 80_000  # ≥ 80,000 USDT
-    LIQUIDITY_PRICE_RANGE = 0.005  # within 0.5% of price
+    # Спред
+    MAX_SPREAD_PERCENT = 0.18  # ≤ 0.18%
+    MAX_AVG_SPREAD_15M_PERCENT = 0.22  # Средний спред 15m ≤ 0.22%
     
-    # 5. ATR volatility filter
-    ATR_MIN_PERCENT = 0.10  # ≥ 0.10%
-    ATR_MAX_PERCENT = 6.0   # ≤ 6.0%
+    # Ликвидность
+    MIN_LIQUIDITY_USDT = 300_000  # ≥ 300,000 USDT в пределах ±0.5%
+    LIQUIDITY_PRICE_RANGE = 0.005  # ±0.5%
     
-    # 6. Gap filter (Open→Close)
-    MAX_GAP_PERCENT = 2.5  # ≤ 2.5% разрыв Open→Close
+    # ATR волатильность
+    ATR_MIN_PERCENT = 0.3  # ≥ 0.3%
+    ATR_MAX_PERCENT = 3.5  # ≤ 3.5%
+    MAX_ATR_DEVIATION = 0.35  # Отклонение ATR ≤ 35%
     
-    # 7. Anomaly candle 5m - СМЯГЧЕНО
-    ANOMALY_CANDLE_PERCENT = 5.0  # > 5% (было 3%)
-    ANOMALY_CANDLE_PAUSE_MINUTES = 5  # pause 5 min (было 15)
+    # Свечи и разрывы
+    MAX_CANDLE_BODY_PERCENT = 1.8  # Нет свечей с Close-Open > 1.8%
+    MAX_HIGH_LOW_GAP_PERCENT = 2.5  # Нет High/Low разрывов > 2.5% за 20 свечей
+    CANDLE_CHECK_LOOKBACK = 20  # Последние 20 свечей
     
-    # 8. Anomaly volume - СМЯГЧЕНО
-    ANOMALY_VOLUME_RATIO = 4.0  # > 400% of average (было 250%)
-    ANOMALY_VOLUME_PAUSE_MINUTES = 5  # pause 5 min (было 10)
+    # Funding Rate
+    FUNDING_RATE_MIN = -0.0006  # от -0.06%
+    FUNDING_RATE_MAX = 0.0006   # до +0.06%
     
-    # 9. Gaps (Open→Close) legacy - СМЯГЧЕНО
-    GAP_TIMEFRAMES = ['5m', '15m']  # forbidden on 5m/15m
-    GAP_THRESHOLD = 0.015  # 1.5% considered a gap (было 0.8%)
+    # Open Interest
+    MAX_OI_CHANGE_15M_PERCENT = 18.0  # Изменение OI за 15m ≤ 18%
     
-    # 10. Pair cooldown - СМЯГЧЕНО
-    PAIR_COOLDOWN_MINUTES = 10  # minimum 10 min since last signal (было 30)
+    # Возраст контракта
+    MIN_CONTRACT_AGE_DAYS = 20  # ≥ 20 дней
     
-    # 11. BTC trend filter - СМЯГЧЕНО
-    BTC_ADX_MIN = 12  # ADX BTC ≥ 12 (было 20)
+    # ========================================================================
+    # BTC/ETH ФИЛЬТРЫ
+    # ========================================================================
     
-    # === NEW FILTERS (СМЯГЧЕНЫ) ===
+    BTC_MAX_MOVE_5M = 1.8  # BTC движение за 5 минут ≤ 1.8%
+    BTC_MAX_MOVE_15M = 2.8  # BTC движение за 15 минут ≤ 2.8%
+    BTC_MAX_REVERSALS_30M = 2  # BTC разворотов > 0.7% за 30 минут ≤ 2
+    BTC_REVERSAL_THRESHOLD = 0.7  # Порог разворота 0.7%
+    BTC_PAUSE_MINUTES = 20  # Пауза после триггера BTC: 20 минут
+    BTC_STRONG_MOVE_1H = 3.0  # Если BTC ±3% за 1 час - только по направлению BTC
+    ETH_MAX_MOVE_15M = 2.5  # ETH движение за 15 минут ≤ 2.5%
     
-    # 12. BTC Volatility Guard
-    BTC_VOLATILITY_THRESHOLD = 2.5  # > 2.5% за 5 мин
-    BTC_VOLATILITY_PAUSE_MINUTES = 5  # пауза 5 минут
+    # ========================================================================
+    # ВРЕМЕННЫЕ ФИЛЬТРЫ
+    # ========================================================================
     
-    # 13. Anti-Pump Filter
-    ANTI_PUMP_THRESHOLD = 10.0  # > ±10% за 30 минут
-    ANTI_PUMP_LOOKBACK_CANDLES = 6  # 30 минут на 5m = 6 свечей
+    TIME_GUARD_START_MINUTES = 5  # Запрет первые 5 минут каждого часа
+    TIME_GUARD_END_MINUTES = 3  # Запрет последние 3 минуты каждого часа
+    MIN_HOURLY_VOLUME_RATIO = 0.75  # Объём за 1 час ≥ 75% от среднего 24h
     
-    # 14. Time Guard
-    TIME_GUARD_MINUTES = 3  # избегать входов в первые 3 минуты каждого часа
+    # ========================================================================
+    # ИНДИКАТОРЫ
+    # ========================================================================
     
-    # 15. Time Session Filter - ОТКЛЮЧЕНО
-    FORBIDDEN_HOURS_START = 25  # Отключено
-    FORBIDDEN_HOURS_END = -1    # Отключено
+    RSI_MAX_LONG = 68  # RSI для лонга ≤ 68
+    RSI_MIN_SHORT = 32  # RSI для шорта ≥ 32
+    ADX_MIN = 18  # ADX ≥ 18
+    ADX_MAX = 45  # ADX ≤ 45
+    MIN_RR_RATIO = 1.8  # Минимальный RR ≥ 1.8:1
     
-    # Storage for paused coins
+    # ========================================================================
+    # ТРЕНД И СТРУКТУРА
+    # ========================================================================
+    
+    MAX_EMA50_DISTANCE_ATR = 2.0  # Расстояние от EMA50 ≤ 2 ATR
+    PULLBACK_MIN_ATR = 0.3  # Pullback минимум 0.3 ATR
+    PULLBACK_MAX_ATR = 0.6  # Pullback максимум 0.6 ATR
+    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей в направлении
+    
+    # ========================================================================
+    # КАЧЕСТВО СИГНАЛА
+    # ========================================================================
+    
+    IMPULSE_BODY_RATIO = 0.60  # Импульсная свеча: тело ≥ 60%
+    IMPULSE_AVG_MULTIPLIER = 1.25  # Импульсная свеча ≥ 1.25× среднего тела
+    MAX_DIRTY_CANDLES = 3  # Не более 3 грязных свечей за 10 свечей
+    DIRTY_CANDLE_TAIL_RATIO = 0.60  # Грязная свеча: хвосты > 60%
+    EMA50_SLOPE_MIN_CANDLES = 7  # Наклон EMA50 в нужную сторону ≥ 7 из 10
+    MAX_BID_ASK_IMBALANCE = 0.35  # Дисбаланс Bid/Ask ≤ 35%
+    MAX_STDDEV_RATIO = 1.25  # StdDev 10 свечей ≤ 1.25× StdDev 50 свечей
+    IMPULSE_VOLUME_MULTIPLIER = 1.15  # Объём импульсной свечи ≥ 1.15× среднего
+    MAX_SAW_CANDLES = 3  # Максимум 3 пила-свечи за 12 свечей
+    SAW_CANDLE_TAIL_RATIO = 0.70  # Пила-свеча: хвосты > 70% тела
+    
+    # ========================================================================
+    # УРОВНИ
+    # ========================================================================
+    
+    MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
+    MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
+    HTF_VOLUME_MULTIPLIER = 1.3  # HTF: объём ≥ 1.3× среднего
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.4  # Дистанция до противоположного уровня ≥ 1.4 ATR
+    BREAKOUT_BODY_RATIO = 0.55  # Свеча пробоя: тело ≥ 55% выше/ниже уровня
+    
+    # ========================================================================
+    # SL/TP ПАРАМЕТРЫ
+    # ========================================================================
+    
+    SL_TOLERANCE_MIN_ATR = 0.4  # SL допуск минимум 0.4 ATR
+    SL_TOLERANCE_MAX_ATR = 0.6  # SL допуск максимум 0.6 ATR
+    MAX_SL_DISTANCE_ATR = 1.6  # SL ≤ 1.6 ATR от входа
+    HIGH_VOLATILITY_SL_EXTENSION = 0.8  # При ATR% ≥ 3.0% допуск до 0.8 ATR
+    MIN_SL_LIQUIDITY_USDT = 90_000  # Ликвидность в зоне SL ≥ 90,000 USDT
+    MAX_EMA50_DEVIATION_ATR = 2.2  # Отклонение от EMA50 ≤ 2.2 ATR
+    TP1_MIN_ATR = 1.0  # TP1 = 1.0-1.3 ATR
+    TP1_MAX_ATR = 1.3
+    TP2_MIN_ATR = 2.0  # TP2 = 2.0-2.6 ATR
+    TP2_MAX_ATR = 2.6
+    CANCEL_IMPULSE_MULTIPLIER = 1.3  # Отмена при обратном импульсе ≥ 1.3× среднего
+    
+    # ========================================================================
+    # SIGNAL CANDLE
+    # ========================================================================
+    
+    SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
+    SIGNAL_CANDLE_BODY_MAX_MULTIPLIER = 1.8  # Тело ≤ 1.8× среднего за 20 свечей
+    SIGNAL_VOLUME_MULTIPLIER = 1.15  # Объём ≥ 1.15× среднего за 20 свечей
+    
+    # ========================================================================
+    # STORAGE
+    # ========================================================================
+    
     _paused_coins = {}  # {ticker: pause_until_timestamp}
-    
-    # Storage for last signal times per pair
     _last_signal_times = {}  # {ticker: datetime}
-    
-    # Storage for BTC volatility pause
     _btc_pause_until = None
+    _btc_direction = None  # Направление BTC при сильном движении
     
     @staticmethod
     async def check_all_filters(ticker: str, timeframe: str, df: pd.DataFrame, 
@@ -93,7 +168,8 @@ class MarketFilters:
                 'reason': str,
                 'volume_24h': float,
                 'spread': float,
-                'liquidity': float
+                'liquidity': float,
+                'atr_percent': float
             }
         """
         
@@ -102,7 +178,8 @@ class MarketFilters:
             'reason': '',
             'volume_24h': None,
             'spread': None,
-            'liquidity': None
+            'liquidity': None,
+            'atr_percent': None
         }
         
         # 0. Check anomaly pause
@@ -111,37 +188,27 @@ class MarketFilters:
             result['reason'] = f"Coin on pause ({remaining} min remaining)"
             return result
         
-        # === NEW: Time Session Filter (23:00 - 05:00 UTC) ===
-        if not MarketFilters.check_time_session():
-            current_hour = datetime.utcnow().hour
-            result['reason'] = f"Forbidden trading session (current: {current_hour}:00 UTC, forbidden: 23:00-05:00)"
+        # === ВРЕМЕННЫЕ ФИЛЬТРЫ ===
+        time_check = MarketFilters.check_time_guards()
+        if not time_check['passed']:
+            result['reason'] = time_check['reason']
             return result
         
-        # === NEW: Time Guard (first 5 min of each hour) ===
-        if not MarketFilters.check_time_guard():
-            current_minute = datetime.utcnow().minute
-            result['reason'] = f"Time guard active (minute {current_minute} < {MarketFilters.TIME_GUARD_MINUTES})"
+        # === BTC/ETH ФИЛЬТРЫ ===
+        btc_check = await MarketFilters.check_btc_eth_filters(client, direction)
+        if not btc_check['passed']:
+            result['reason'] = btc_check['reason']
             return result
         
-        # === NEW: BTC Volatility Guard ===
-        btc_guard = await MarketFilters.check_btc_volatility_guard(client)
-        if not btc_guard['passed']:
-            result['reason'] = btc_guard['reason']
+        # === ФИЛЬТРЫ РЫНКА ===
+        
+        # 1. Top-200 by market cap
+        is_top_200 = await MarketFilters.check_top_coins(ticker)
+        if not is_top_200:
+            result['reason'] = "Not in TOP-200 by market cap"
             return result
         
-        # 1. Pair cooldown - 30 min since last signal
-        cooldown_passed, cooldown_remaining = MarketFilters.check_pair_cooldown(ticker)
-        if not cooldown_passed:
-            result['reason'] = f"Pair cooldown active ({cooldown_remaining} min remaining)"
-            return result
-        
-        # 2. Top-300 by market cap
-        is_top_300 = await MarketFilters.check_top_300(ticker)
-        if not is_top_300:
-            result['reason'] = "Not in TOP-300 by market cap"
-            return result
-        
-        # 3. Futures volume ≥ 2,500,000 USDT
+        # 2. Futures volume ≥ 3,000,000 USDT
         volume_24h = await MarketFilters.check_futures_volume(ticker, client)
         if volume_24h is None or volume_24h < MarketFilters.MIN_FUTURES_VOLUME_USDT:
             vol_str = f"{volume_24h:,.0f}" if volume_24h else "0"
@@ -149,7 +216,7 @@ class MarketFilters:
             return result
         result['volume_24h'] = volume_24h
         
-        # 4. Spread ≤ 0.35%
+        # 3. Spread ≤ 0.18%
         spread = await MarketFilters.check_spread(ticker, client)
         if spread is None:
             result['reason'] = "Failed to get spread"
@@ -159,7 +226,7 @@ class MarketFilters:
             return result
         result['spread'] = spread
         
-        # 5. Liquidity ≥ 80,000 USDT within 0.5% of price
+        # 4. Liquidity ≥ 300,000 USDT within ±0.5%
         liquidity = await MarketFilters.check_liquidity(ticker, client)
         if liquidity is None or liquidity < MarketFilters.MIN_LIQUIDITY_USDT:
             liq_str = f"{liquidity:,.0f}" if liquidity else "0"
@@ -167,51 +234,54 @@ class MarketFilters:
             return result
         result['liquidity'] = liquidity
         
-        # 7. ATR volatility filter: 0.10% ≤ ATR% ≤ 6.0%
+        # 5. ATR volatility: 0.3% ≤ ATR% ≤ 3.5%
         atr_check = MarketFilters.check_atr_volatility(df)
         if not atr_check['passed']:
             result['reason'] = atr_check['reason']
             return result
         result['atr_percent'] = atr_check['atr_percent']
         
-        # 7. Gap filter: нет разрыва Open→Close > 1.5%
-        gap_check = MarketFilters.check_open_close_gap(df)
+        # 6. ATR deviation ≤ 35%
+        atr_dev_check = MarketFilters.check_atr_deviation(df)
+        if not atr_dev_check['passed']:
+            result['reason'] = atr_dev_check['reason']
+            return result
+        
+        # 7. No candles with Close-Open > 1.8%
+        candle_check = MarketFilters.check_candle_bodies(df)
+        if not candle_check['passed']:
+            result['reason'] = candle_check['reason']
+            return result
+        
+        # 8. No High/Low gaps > 2.5% in last 20 candles
+        gap_check = MarketFilters.check_high_low_gaps(df)
         if not gap_check['passed']:
             result['reason'] = gap_check['reason']
             return result
         
-        # === NEW: Anti-Pump Filter (movement > ±7% in 30 min) ===
-        anti_pump = MarketFilters.check_anti_pump(df, ticker, timeframe)
-        if not anti_pump['passed']:
-            result['reason'] = anti_pump['reason']
+        # 9. Volume 60m ratio check (адаптивно для разных таймфреймов)
+        volume_ratio_check = MarketFilters.check_volume_60m_ratio(df, volume_24h, timeframe)
+        if not volume_ratio_check['passed']:
+            result['reason'] = volume_ratio_check['reason']
             return result
         
-        # 8. BTC trend filter (for altcoins)
-        if direction and ticker not in ['BTC/USDT', 'BTCUSDT']:
-            btc_trend_ok = await MarketFilters.check_btc_trend_filter(direction, client)
-            if not btc_trend_ok['passed']:
-                result['reason'] = btc_trend_ok['reason']
-                return result
-        
-        # 9. Anomaly candle 5m > 3% → pause 15 min
-        if timeframe in ['5m', '1m']:
-            has_anomaly_candle = MarketFilters.check_anomaly_candle(df, ticker)
-            if has_anomaly_candle:
-                result['reason'] = "Anomaly candle > 3% (15 min pause)"
-                return result
-        
-        # 10. Anomaly volume > 250% of average → pause 10 min
-        has_anomaly_volume = MarketFilters.check_anomaly_volume(df, ticker)
-        if has_anomaly_volume:
-            result['reason'] = "Anomaly volume > 250% (10 min pause)"
+        # 10. Hourly volume check (адаптивно для разных таймфреймов)
+        hourly_vol_check = MarketFilters.check_hourly_volume(df, timeframe)
+        if not hourly_vol_check['passed']:
+            result['reason'] = hourly_vol_check['reason']
             return result
         
-        # 11. Gaps forbidden on 5m/15m (legacy check)
-        if timeframe in MarketFilters.GAP_TIMEFRAMES:
-            has_gap = MarketFilters.check_gaps(df)
-            if has_gap:
-                result['reason'] = f"Gap detected on {timeframe}"
-                return result
+        # === ИНДИКАТОРЫ ===
+        indicator_check = MarketFilters.check_indicators(df, direction)
+        if not indicator_check['passed']:
+            result['reason'] = indicator_check['reason']
+            return result
+        
+        # === КАЧЕСТВО СИГНАЛА ===
+        quality_check = MarketFilters.check_signal_quality(df, direction)
+        if not quality_check['passed']:
+            result['reason'] = quality_check['reason']
+            return result
         
         # All filters passed
         result['passed'] = True
@@ -219,220 +289,204 @@ class MarketFilters:
         return result
     
     # ========================================================================
-    # NEW FILTERS
+    # ВРЕМЕННЫЕ ФИЛЬТРЫ
     # ========================================================================
     
     @staticmethod
-    def check_time_session() -> bool:
+    def check_time_guards() -> Dict:
         """
-        Time Session Filter: не торгуем с 23:00 до 05:00 UTC
-        
-        Returns:
-            True - если можно торговать
-            False - если запрещено
+        Временные фильтры:
+        - Запрет первые 5 минут каждого часа
+        - Запрет последние 3 минуты каждого часа
         """
-        current_hour = datetime.utcnow().hour
+        result = {'passed': False, 'reason': ''}
         
-        # Запрещённые часы: 23, 0, 1, 2, 3, 4
-        if current_hour >= MarketFilters.FORBIDDEN_HOURS_START or current_hour < MarketFilters.FORBIDDEN_HOURS_END:
-            return False
-        
-        return True
-    
-    @staticmethod
-    def check_time_guard() -> bool:
-        """
-        Time Guard: не входим в первые 5 минут каждого часа
-        
-        Returns:
-            True - если можно торговать
-            False - если запрещено
-        """
         current_minute = datetime.utcnow().minute
         
-        if current_minute < MarketFilters.TIME_GUARD_MINUTES:
-            return False
-        
-        return True
-    
-    @staticmethod
-    async def check_btc_volatility_guard(client: XTClient) -> Dict:
-        """
-        BTC Volatility Guard: при движении BTC > 2.5% за 5 минут — пауза 5 минут
-        Использует кэш для оптимизации при 200+ парах
-        
-        Returns:
-            {'passed': bool, 'reason': str}
-        """
-        from utils.cache import btc_cache
-        
-        result = {
-            'passed': False,
-            'reason': ''
-        }
-        
-        # Проверяем, не активна ли пауза
-        if MarketFilters._btc_pause_until and datetime.utcnow() < MarketFilters._btc_pause_until:
-            remaining = (MarketFilters._btc_pause_until - datetime.utcnow()).total_seconds() / 60
-            result['reason'] = f"BTC volatility pause active ({int(remaining)} min remaining)"
+        # Запрет первые 5 минут
+        if current_minute < MarketFilters.TIME_GUARD_START_MINUTES:
+            result['reason'] = f"Time guard: first {MarketFilters.TIME_GUARD_START_MINUTES} min of hour (current: {current_minute})"
             return result
         
-        try:
-            # Получаем данные BTC из кэша (или загружаем если устарели)
-            btc_df = await btc_cache.get_btc_ohlcv_1m(client)
-            
-            if btc_df is None or btc_df.empty or len(btc_df) < 5:
-                result['passed'] = True
-                result['reason'] = "BTC data unavailable, filter skipped"
-                return result
-            
-            # Берём последние 5 минут (5 свечей на 1m таймфрейме)
-            if len(btc_df) < 5:
-                result['passed'] = True
-                result['reason'] = "Not enough BTC data for 5min check, filter skipped"
-                return result
-            recent_5min = btc_df.tail(5)  # 5 свечей = 5 минут на 1m
-            price_5min_ago = recent_5min.iloc[0]['open']
-            current_price = recent_5min.iloc[-1]['close']
-            
-            if price_5min_ago == 0:
-                result['passed'] = True
-                return result
-            
-            # Изменение в процентах
-            change_percent = abs((current_price - price_5min_ago) / price_5min_ago) * 100
-            
-            if change_percent > MarketFilters.BTC_VOLATILITY_THRESHOLD:
-                # Устанавливаем паузу
-                MarketFilters._btc_pause_until = datetime.utcnow() + timedelta(minutes=MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES)
-                result['reason'] = f"BTC moved {change_percent:.2f}% in 5 min > {MarketFilters.BTC_VOLATILITY_THRESHOLD}% ({MarketFilters.BTC_VOLATILITY_PAUSE_MINUTES} min pause set)"
-                return result
-            
-            result['passed'] = True
-            return result
-            
-        except Exception as e:
-            # При ошибке пропускаем фильтр
-            result['passed'] = True
-            result['reason'] = f"BTC volatility check error: {str(e)}, filter skipped"
-            return result
-    
-    @staticmethod
-    def check_anti_pump(df: pd.DataFrame, ticker: str, timeframe: str) -> Dict:
-        """
-        Anti-Pump Filter: избегать монет с движением > ±7% за последние 30 минут
-        
-        Адаптивно работает для всех таймфреймов:
-        - 1m: 30 свечей
-        - 5m: 6 свечей
-        - 15m: 2 свечи
-        - 1h: 1 свеча (30 минут)
-        - 4h: 1 свеча (но это 4 часа, не 30 минут - пропускаем)
-        
-        Returns:
-            {'passed': bool, 'reason': str}
-        """
-        result = {
-            'passed': False,
-            'reason': ''
-        }
-        
-        # Определяем количество свечей для 30 минут в зависимости от таймфрейма
-        timeframe_minutes = {
-            '1m': 1,
-            '5m': 5,
-            '15m': 15,
-            '1h': 60,
-            '4h': 240,
-            '1d': 1440
-        }
-        
-        tf_minutes = timeframe_minutes.get(timeframe, 5)
-        
-        # Для таймфреймов >= 1h проверяем только последнюю свечу (может быть больше 30 минут)
-        if tf_minutes >= 60:
-            lookback_candles = 1
-        else:
-            # Для меньших таймфреймов: 30 минут / длительность свечи
-            lookback_candles = max(1, int(30 / tf_minutes))
-        
-        if df.empty or len(df) < lookback_candles:
-            result['passed'] = True
-            return result
-        
-        # Берём последние N свечей (30 минут)
-        recent = df.tail(lookback_candles)
-        
-        # Цена N свечей назад и текущая
-        price_30min_ago = recent.iloc[0]['open']
-        current_price = recent.iloc[-1]['close']
-        
-        if price_30min_ago == 0:
-            result['passed'] = True
-            return result
-        
-        # Изменение в процентах
-        change_percent = ((current_price - price_30min_ago) / price_30min_ago) * 100
-        
-        if abs(change_percent) > MarketFilters.ANTI_PUMP_THRESHOLD:
-            direction = "pump" if change_percent > 0 else "dump"
-            actual_minutes = lookback_candles * tf_minutes
-            result['reason'] = f"Anti-{direction} filter: {ticker} moved {change_percent:+.2f}% in {actual_minutes} min > ±{MarketFilters.ANTI_PUMP_THRESHOLD}%"
+        # Запрет последние 3 минуты
+        if current_minute >= (60 - MarketFilters.TIME_GUARD_END_MINUTES):
+            result['reason'] = f"Time guard: last {MarketFilters.TIME_GUARD_END_MINUTES} min of hour (current: {current_minute})"
             return result
         
         result['passed'] = True
         return result
     
     # ========================================================================
-    # INDIVIDUAL FILTER CHECKS
+    # BTC/ETH ФИЛЬТРЫ
     # ========================================================================
     
     @staticmethod
-    async def check_top_300(ticker: str) -> bool:
+    async def check_btc_eth_filters(client: XTClient, direction: str = None) -> Dict:
         """
-        Check if coin is in TOP-300 by market cap
+        BTC/ETH фильтры:
+        - BTC движение за 5 минут ≤ 1.8%
+        - BTC движение за 15 минут ≤ 2.8%
+        - BTC разворотов > 0.7% за 30 минут ≤ 2
+        - Пауза после триггера BTC: 20 минут
+        - Если BTC ±3% за 1 час — сигналы только по направлению BTC
+        - ETH движение за 15 минут ≤ 2.5%
+        """
+        from utils.cache import btc_cache
         
-        Использует текущий список торговых пар из ConfigManager
-        Если монета в списке торговых пар - значит она в топ-300
-        """
+        result = {'passed': False, 'reason': ''}
+        
+        # Проверяем паузу BTC
+        if MarketFilters._btc_pause_until and datetime.utcnow() < MarketFilters._btc_pause_until:
+            remaining = (MarketFilters._btc_pause_until - datetime.utcnow()).total_seconds() / 60
+            result['reason'] = f"BTC pause active ({int(remaining)} min remaining)"
+            return result
+        
+        try:
+            # Получаем данные BTC
+            btc_df = await btc_cache.get_btc_ohlcv_1m(client)
+            
+            if btc_df is None or btc_df.empty or len(btc_df) < 60:
+                result['passed'] = True
+                result['reason'] = "BTC data unavailable, filter skipped"
+            return result
+            
+            # BTC движение за 5 минут
+            if len(btc_df) >= 5:
+                recent_5m = btc_df.tail(5)
+                price_5m_ago = recent_5m.iloc[0]['open']
+                current_price = recent_5m.iloc[-1]['close']
+                
+                if price_5m_ago > 0:
+                    btc_move_5m = abs((current_price - price_5m_ago) / price_5m_ago) * 100
+                    
+                    if btc_move_5m > MarketFilters.BTC_MAX_MOVE_5M:
+                        MarketFilters._set_btc_pause()
+                        result['reason'] = f"BTC moved {btc_move_5m:.2f}% in 5min > {MarketFilters.BTC_MAX_MOVE_5M}%"
+            return result
+            
+            # BTC движение за 15 минут
+            if len(btc_df) >= 15:
+                recent_15m = btc_df.tail(15)
+                price_15m_ago = recent_15m.iloc[0]['open']
+                current_price = recent_15m.iloc[-1]['close']
+                
+                if price_15m_ago > 0:
+                    btc_move_15m = abs((current_price - price_15m_ago) / price_15m_ago) * 100
+                    
+                    if btc_move_15m > MarketFilters.BTC_MAX_MOVE_15M:
+                        MarketFilters._set_btc_pause()
+                        result['reason'] = f"BTC moved {btc_move_15m:.2f}% in 15min > {MarketFilters.BTC_MAX_MOVE_15M}%"
+            return result
+            
+            # BTC разворотов за 30 минут
+            if len(btc_df) >= 30:
+                recent_30m = btc_df.tail(30)
+                reversals = MarketFilters._count_reversals(recent_30m, MarketFilters.BTC_REVERSAL_THRESHOLD)
+                
+                if reversals > MarketFilters.BTC_MAX_REVERSALS_30M:
+                    result['reason'] = f"BTC reversals {reversals} > {MarketFilters.BTC_MAX_REVERSALS_30M} in 30min"
+            return result
+            
+            # BTC сильное движение за 1 час
+            if len(btc_df) >= 60 and direction:
+                recent_60m = btc_df.tail(60)
+                price_60m_ago = recent_60m.iloc[0]['open']
+                current_price = recent_60m.iloc[-1]['close']
+                
+                if price_60m_ago > 0:
+                    btc_move_1h = ((current_price - price_60m_ago) / price_60m_ago) * 100
+                    
+                    if abs(btc_move_1h) >= MarketFilters.BTC_STRONG_MOVE_1H:
+                        btc_direction = 'LONG' if btc_move_1h > 0 else 'SHORT'
+                        
+                        if direction != btc_direction:
+                            result['reason'] = f"BTC moved {btc_move_1h:+.2f}% in 1h, only {btc_direction} signals allowed"
+            return result
+            
+            # ETH движение за 15 минут
+            try:
+                eth_df = await client.get_ohlcv('ETH/USDT', '1m', limit=15)
+                if eth_df is not None and len(eth_df) >= 15:
+                    price_15m_ago = eth_df.iloc[0]['open']
+                    current_price = eth_df.iloc[-1]['close']
+                    
+                    if price_15m_ago > 0:
+                        eth_move_15m = abs((current_price - price_15m_ago) / price_15m_ago) * 100
+                        
+                        if eth_move_15m > MarketFilters.ETH_MAX_MOVE_15M:
+                            result['reason'] = f"ETH moved {eth_move_15m:.2f}% in 15min > {MarketFilters.ETH_MAX_MOVE_15M}%"
+                            return result
+            except:
+                pass  # ETH check is optional
+            
+            result['passed'] = True
+            return result
+            
+        except Exception as e:
+            result['passed'] = True
+            result['reason'] = f"BTC/ETH filter error: {str(e)}, skipped"
+            return result
+    
+    @staticmethod
+    def _count_reversals(df: pd.DataFrame, threshold: float) -> int:
+        """Подсчёт разворотов больше порога"""
+        reversals = 0
+        if len(df) < 2:
+            return 0
+        
+        prev_direction = None
+        for i in range(1, len(df)):
+            change = ((df.iloc[i]['close'] - df.iloc[i-1]['close']) / df.iloc[i-1]['close']) * 100
+            
+            if abs(change) >= threshold:
+                current_direction = 'up' if change > 0 else 'down'
+                if prev_direction and current_direction != prev_direction:
+                    reversals += 1
+                prev_direction = current_direction
+        
+        return reversals
+    
+    @staticmethod
+    def _set_btc_pause():
+        """Установить паузу BTC"""
+        MarketFilters._btc_pause_until = datetime.utcnow() + timedelta(minutes=MarketFilters.BTC_PAUSE_MINUTES)
+    
+    # ========================================================================
+    # ФИЛЬТРЫ РЫНКА
+    # ========================================================================
+    
+    @staticmethod
+    async def check_top_coins(ticker: str) -> bool:
+        """Check if coin is in TOP-200 by market cap"""
         from database.config_manager import ConfigManager
         
-        # Получаем текущий список торговых пар (автоматически обновляется из CoinGecko)
         trading_pairs = ConfigManager.get_trading_pairs()
         
-        # Если монета есть в списке торговых пар - значит она в топ-300
         if ticker in trading_pairs:
             return True
         
-        # Также проверяем через TopCoinsService (если доступен)
         try:
             from utils.top_coins import TopCoinsService
             coin_info = await TopCoinsService.get_coin_info(ticker.replace('/USDT', ''))
             if coin_info and coin_info.get('rank', 999) <= MarketFilters.TOP_COINS_LIMIT:
                 return True
         except:
-            pass  # Если сервис недоступен, используем только проверку по списку
+            pass
         
-        # Если монеты нет в списке - считаем что она не в топ-300
         return False
     
     @staticmethod
     async def check_futures_volume(ticker: str, client: XTClient) -> Optional[float]:
-        """
-        Check futures volume ≥ 2,500,000 USDT
-        """
+        """Check futures volume ≥ 3,000,000 USDT"""
         try:
             ticker_data = await client.get_ticker(ticker)
             
             if not ticker_data:
                 return None
             
-            # Get 24h volume in USDT
-            # quoteVolume - volume in quote currency (USDT)
             volume_usdt = ticker_data.get('quoteVolume')
             
             if volume_usdt is None:
-                # Try to calculate: baseVolume * last price
                 base_volume = ticker_data.get('baseVolume')
                 last_price = ticker_data.get('last')
                 
@@ -442,16 +496,11 @@ class MarketFilters:
             return float(volume_usdt) if volume_usdt else None
             
         except Exception as e:
-            print(f"[ERROR] Volume check error for {ticker}: {e}")
             return None
     
     @staticmethod
     async def check_spread(ticker: str, client: XTClient) -> Optional[float]:
-        """
-        Check spread ≤ 0.35%
-        
-        Spread = (ask - bid) / bid * 100%
-        """
+        """Check spread ≤ 0.18%"""
         try:
             ticker_data = await client.get_ticker(ticker)
             
@@ -462,11 +511,13 @@ class MarketFilters:
             ask = ticker_data.get('ask')
             
             if not bid or not ask:
-                # Try to get from orderbook (minimum 5 levels for Binance)
                 orderbook = await client.get_orderbook(ticker, limit=5)
                 if orderbook and orderbook.get('bids') and orderbook.get('asks'):
-                    bid = float(orderbook['bids'][0][0])
-                    ask = float(orderbook['asks'][0][0])
+                    bids_list = orderbook['bids']
+                    asks_list = orderbook['asks']
+                    if len(bids_list) > 0 and len(asks_list) > 0:
+                        bid = float(bids_list[0][0])
+                        ask = float(asks_list[0][0])
             
             if bid and ask:
                 bid = float(bid)
@@ -477,26 +528,18 @@ class MarketFilters:
             return None
             
         except Exception as e:
-            print(f"[ERROR] Spread check error for {ticker}: {e}")
             return None
     
     @staticmethod
     async def check_liquidity(ticker: str, client: XTClient) -> Optional[float]:
-        """
-        Check liquidity ≥ 120,000 USDT within 0.3% of price
-        
-        Liquidity = sum of (bid_volume + ask_volume) in USDT 
-        for orders within ±0.3% of current price
-        """
+        """Check liquidity ≥ 300,000 USDT within ±0.5%"""
         try:
-            # Get current price
             ticker_data = await client.get_ticker(ticker)
             if not ticker_data or not ticker_data.get('last'):
                 return None
             
             current_price = float(ticker_data['last'])
             
-            # Get orderbook (50 levels depth)
             orderbook = await client.get_orderbook(ticker, limit=50)
             if not orderbook:
                 return None
@@ -504,190 +547,43 @@ class MarketFilters:
             bids = orderbook.get('bids', [])
             asks = orderbook.get('asks', [])
             
-            # Price range ±0.3%
+            if not bids or not asks:
+                return None
+            
             price_range = current_price * MarketFilters.LIQUIDITY_PRICE_RANGE
             min_price = current_price - price_range
             max_price = current_price + price_range
             
-            # Calculate liquidity in USDT
             liquidity_usdt = 0
             
-            # Bids (buyers) - below current price
-            for price, volume in bids:
-                price = float(price)
-                volume = float(volume)
+            try:
+                for price, volume in bids:
+                    price = float(price)
+                    volume = float(volume)
+                    if price >= min_price:
+                        liquidity_usdt += price * volume
                 
-                if price >= min_price:  # Within 0.3% of current price
-                    liquidity_usdt += price * volume
-            
-            # Asks (sellers) - above current price
-            for price, volume in asks:
-                price = float(price)
-                volume = float(volume)
-                
-                if price <= max_price:  # Within 0.3% of current price
-                    liquidity_usdt += price * volume
+                for price, volume in asks:
+                    price = float(price)
+                    volume = float(volume)
+                    if price <= max_price:
+                        liquidity_usdt += price * volume
+            except (ValueError, TypeError, IndexError) as e:
+                return None
             
             return liquidity_usdt
             
         except Exception as e:
-            print(f"[ERROR] Liquidity check error for {ticker}: {e}")
             return None
     
     @staticmethod
-    def check_anomaly_candle(df: pd.DataFrame, ticker: str) -> bool:
-        """
-        Check for anomaly candle 5m > 3%
-        If detected → sets 15 min pause
-        
-        Returns:
-            True - if anomaly candle detected (filter NOT passed)
-            False - if OK (filter passed)
-        """
-        if df.empty or len(df) < 2:
-            return False
-        
-        # Check last 3 candles
-        recent_candles = df.tail(3)
-        
-        for idx, row in recent_candles.iterrows():
-            open_price = row['open']
-            close_price = row['close']
-            
-            if open_price == 0:
-                continue
-            
-            # Candle size in percent
-            candle_size = abs(close_price - open_price) / open_price * 100
-            
-            if candle_size > MarketFilters.ANOMALY_CANDLE_PERCENT:
-                # Anomaly candle detected - set pause 15 min
-                MarketFilters._set_pause(ticker, MarketFilters.ANOMALY_CANDLE_PAUSE_MINUTES)
-                print(f"[ANOMALY] Anomaly candle {ticker}: {candle_size:.2f}% > {MarketFilters.ANOMALY_CANDLE_PERCENT}% ({MarketFilters.ANOMALY_CANDLE_PAUSE_MINUTES} min pause)")
-                return True
-        
-        return False
-    
-    @staticmethod
-    def check_anomaly_volume(df: pd.DataFrame, ticker: str) -> bool:
-        """
-        Check for anomaly volume > 250% of average
-        If detected → sets 10 min pause
-        
-        Returns:
-            True - if anomaly volume (filter NOT passed)
-            False - if OK (filter passed)
-        """
-        if df.empty or len(df) < 20:
-            return False
-        
-        # Average volume for last 20 candles (excluding last)
-        avg_volume = df['volume'].iloc[-21:-1].mean()
-        
-        if avg_volume == 0:
-            return False
-        
-        # Check last 3 candles
-        recent_candles = df.tail(3)
-        
-        for idx, row in recent_candles.iterrows():
-            current_volume = row['volume']
-            volume_ratio = current_volume / avg_volume
-            
-            if volume_ratio > MarketFilters.ANOMALY_VOLUME_RATIO:
-                # Anomaly volume detected - set pause 10 min
-                MarketFilters._set_pause(ticker, MarketFilters.ANOMALY_VOLUME_PAUSE_MINUTES)
-                print(f"[ANOMALY] Anomaly volume {ticker}: {volume_ratio:.1f}x > {MarketFilters.ANOMALY_VOLUME_RATIO}x ({MarketFilters.ANOMALY_VOLUME_PAUSE_MINUTES} min pause)")
-                return True
-        
-        return False
-    
-    @staticmethod
-    def check_gaps(df: pd.DataFrame) -> bool:
-        """
-        Check for gaps on 5m/15m
-        Gap = difference between previous candle's close and current candle's open
-        
-        Returns:
-            True - if gap detected (filter NOT passed)
-            False - if no gaps (filter passed)
-        """
-        if df.empty or len(df) < 2:
-            return False
-        
-        # Check last 5 candles for gaps
-        recent_candles = df.tail(6)
-        
-        for i in range(1, len(recent_candles)):
-            prev_close = recent_candles.iloc[i-1]['close']
-            current_open = recent_candles.iloc[i]['open']
-            
-            if prev_close == 0:
-                continue
-            
-            # Gap size in percent
-            gap_size = abs(current_open - prev_close) / prev_close
-            
-            if gap_size > MarketFilters.GAP_THRESHOLD:
-                print(f"[GAP] Gap detected: {gap_size*100:.2f}%")
-                return True
-        
-        return False
-    
-    # ========================================================================
-    # VOLATILITY AND GAP CHECKS
-    # ========================================================================
-    
-    @staticmethod
-    def check_pair_cooldown(ticker: str) -> Tuple[bool, int]:
-        """
-        Check pair cooldown - at least 30 min since last signal
-        
-        Returns:
-            (passed: bool, remaining_minutes: int)
-        """
-        if ticker not in MarketFilters._last_signal_times:
-            return True, 0
-        
-        last_signal = MarketFilters._last_signal_times[ticker]
-        cooldown_end = last_signal + timedelta(minutes=MarketFilters.PAIR_COOLDOWN_MINUTES)
-        
-        if datetime.utcnow() >= cooldown_end:
-            # Cooldown expired - remove from storage
-            del MarketFilters._last_signal_times[ticker]
-            return True, 0
-        
-        # Cooldown still active
-        remaining = (cooldown_end - datetime.utcnow()).total_seconds() / 60
-        return False, int(remaining)
-    
-    @staticmethod
-    def record_signal_time(ticker: str):
-        """Record the time when a signal was generated for a pair"""
-        MarketFilters._last_signal_times[ticker] = datetime.utcnow()
-    
-    @staticmethod
     def check_atr_volatility(df: pd.DataFrame) -> Dict:
-        """
-        ATR volatility filter
-        ATR % = ATR(14) / Price × 100
-        Condition: 0.20% ≤ ATR% ≤ 6.0%
-        
-        Returns:
-            {'passed': bool, 'reason': str, 'atr_percent': float}
-        """
-        result = {
-            'passed': False,
-            'reason': '',
-            'atr_percent': None
-        }
+        """ATR volatility: 0.3% ≤ ATR% ≤ 3.5%"""
+        result = {'passed': False, 'reason': '', 'atr_percent': None}
         
         if df.empty or len(df) < 14:
-            result['reason'] = "Not enough data for ATR calculation"
+            result['reason'] = "Not enough data for ATR"
             return result
-        
-        # Calculate ATR (14 period)
-        from ta.volatility import AverageTrueRange
         
         atr_indicator = AverageTrueRange(
             high=df['high'],
@@ -696,153 +592,375 @@ class MarketFilters:
             window=14
         )
         
-        atr = atr_indicator.average_true_range().iloc[-1]
+        atr_series = atr_indicator.average_true_range()
+        atr = atr_series.iloc[-1]
         current_price = df.iloc[-1]['close']
         
-        if current_price == 0:
-            result['reason'] = "Invalid price (zero)"
+        # Проверка на NaN и нулевые значения
+        if pd.isna(atr) or atr == 0 or current_price == 0:
+            result['reason'] = "Invalid ATR or price (NaN or zero)"
             return result
         
-        # ATR % = ATR / Price × 100
         atr_percent = (atr / current_price) * 100
         result['atr_percent'] = atr_percent
         
         if atr_percent < MarketFilters.ATR_MIN_PERCENT:
-            result['reason'] = f"ATR% {atr_percent:.2f}% < {MarketFilters.ATR_MIN_PERCENT}% (dead market)"
+            result['reason'] = f"ATR% {atr_percent:.2f}% < {MarketFilters.ATR_MIN_PERCENT}%"
             return result
         
         if atr_percent > MarketFilters.ATR_MAX_PERCENT:
-            result['reason'] = f"ATR% {atr_percent:.2f}% > {MarketFilters.ATR_MAX_PERCENT}% (too high volatility)"
+            result['reason'] = f"ATR% {atr_percent:.2f}% > {MarketFilters.ATR_MAX_PERCENT}%"
             return result
         
         result['passed'] = True
         return result
     
     @staticmethod
-    def check_open_close_gap(df: pd.DataFrame) -> Dict:
-        """
-        Проверка разрыва Open→Close > 1.5%
+    def check_atr_deviation(df: pd.DataFrame) -> Dict:
+        """ATR deviation ≤ 35%"""
+        result = {'passed': False, 'reason': ''}
         
-        Returns:
-            {'passed': bool, 'reason': str}
-        """
-        result = {
-            'passed': False,
-            'reason': ''
-        }
-        
-        if df.empty or len(df) < 1:
-            result['reason'] = "Not enough data for gap check"
+        if df.empty or len(df) < 50:
+            result['passed'] = True
             return result
         
-        # Проверяем последнюю свечу
-        last = df.iloc[-1]
-        open_price = last['open']
-        close_price = last['close']
+        atr_indicator = AverageTrueRange(
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            window=14
+        )
         
-        if open_price == 0:
-            result['reason'] = "Invalid open price (zero)"
+        atr_series = atr_indicator.average_true_range()
+        
+        # Среднее ATR за последние 50 свечей
+        avg_atr = atr_series.tail(50).mean()
+        current_atr = atr_series.iloc[-1]
+        
+        # Проверка на NaN и нулевые значения
+        if pd.isna(avg_atr) or pd.isna(current_atr) or avg_atr == 0:
+            result['passed'] = True
             return result
         
-        # Разрыв в процентах
-        gap_percent = abs(close_price - open_price) / open_price * 100
+        deviation = abs(current_atr - avg_atr) / avg_atr
         
-        if gap_percent > MarketFilters.MAX_GAP_PERCENT:
-            result['reason'] = f"Open→Close gap {gap_percent:.2f}% > {MarketFilters.MAX_GAP_PERCENT}%"
+        if deviation > MarketFilters.MAX_ATR_DEVIATION:
+            result['reason'] = f"ATR deviation {deviation*100:.1f}% > {MarketFilters.MAX_ATR_DEVIATION*100}%"
             return result
         
         result['passed'] = True
         return result
     
     @staticmethod
-    async def check_btc_trend_filter(direction: str, client: XTClient) -> Dict:
-        """
-        BTC Trend Filter
-        Использует кэш для оптимизации при 200+ парах
+    def check_candle_bodies(df: pd.DataFrame) -> Dict:
+        """No candles with Close-Open > 1.8%"""
+        result = {'passed': False, 'reason': ''}
         
-        For LONG:
-        - BTC price > EMA200 (1H)
-        - EMA50 > EMA200 (1H)
-        - ADX BTC ≥ 20
+        if df.empty or len(df) < MarketFilters.CANDLE_CHECK_LOOKBACK:
+            result['passed'] = True
+            return result
         
-        For SHORT:
-        - BTC price < EMA200 (1H)
-        - EMA50 < EMA200 (1H)
-        - ADX BTC ≥ 20
+        recent = df.tail(MarketFilters.CANDLE_CHECK_LOOKBACK)
         
-        Returns:
-            {'passed': bool, 'reason': str}
-        """
-        from utils.cache import btc_cache
+        for idx, row in recent.iterrows():
+            if row['open'] == 0:
+                continue
+            
+            body_percent = abs(row['close'] - row['open']) / row['open'] * 100
+            
+            if body_percent > MarketFilters.MAX_CANDLE_BODY_PERCENT:
+                result['reason'] = f"Candle body {body_percent:.2f}% > {MarketFilters.MAX_CANDLE_BODY_PERCENT}%"
+            return result
         
-        result = {
-            'passed': False,
-            'reason': ''
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_high_low_gaps(df: pd.DataFrame) -> Dict:
+        """No High/Low gaps > 2.5% in last 20 candles"""
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < MarketFilters.CANDLE_CHECK_LOOKBACK:
+            result['passed'] = True
+            return result
+        
+        recent = df.tail(MarketFilters.CANDLE_CHECK_LOOKBACK)
+        
+        for i in range(1, len(recent)):
+            prev_low = recent.iloc[i-1]['low']
+            prev_high = recent.iloc[i-1]['high']
+            curr_low = recent.iloc[i]['low']
+            curr_high = recent.iloc[i]['high']
+            
+            if prev_high == 0 or prev_low == 0:
+                continue
+            
+            # Gap up
+            if curr_low > prev_high:
+                gap = (curr_low - prev_high) / prev_high * 100
+                if gap > MarketFilters.MAX_HIGH_LOW_GAP_PERCENT:
+                    result['reason'] = f"Gap up {gap:.2f}% > {MarketFilters.MAX_HIGH_LOW_GAP_PERCENT}%"
+            return result
+            
+            # Gap down
+            if curr_high < prev_low:
+                gap = (prev_low - curr_high) / prev_low * 100
+                if gap > MarketFilters.MAX_HIGH_LOW_GAP_PERCENT:
+                    result['reason'] = f"Gap down {gap:.2f}% > {MarketFilters.MAX_HIGH_LOW_GAP_PERCENT}%"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_volume_60m_ratio(df: pd.DataFrame, volume_24h: float, timeframe: str = '5m') -> Dict:
+        """Volume 60m ≥ 1.2% of 24h (адаптивно для разных таймфреймов)"""
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or volume_24h is None or volume_24h == 0:
+            result['passed'] = True
+            return result
+        
+        # Определяем количество свечей для 60 минут в зависимости от таймфрейма
+        timeframe_minutes = {
+            '1m': 1,
+            '5m': 5,
+            '15m': 15,
+            '1h': 60,
+            '4h': 240,
+            '1d': 1440
         }
         
-        try:
-            # Get BTC 1H data from cache
-            btc_df = await btc_cache.get_btc_ohlcv_1h(client)
+        tf_minutes = timeframe_minutes.get(timeframe, 5)
+        candles_60m = max(1, int(60 / tf_minutes))
+        
+        if len(df) < candles_60m:
+            result['passed'] = True
+            return result
+        
+        # Последние N свечей = 60 минут
+        recent_60m = df.tail(candles_60m)
+        volume_60m = recent_60m['volume'].sum()
+        
+        # Конвертируем в USDT (примерно)
+        avg_price = recent_60m['close'].mean()
+        volume_60m_usdt = volume_60m * avg_price
+        
+        ratio = volume_60m_usdt / volume_24h
+        
+        if ratio < MarketFilters.MIN_VOLUME_60M_RATIO:
+            result['reason'] = f"Volume 60m ratio {ratio*100:.2f}% < {MarketFilters.MIN_VOLUME_60M_RATIO*100}%"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_hourly_volume(df: pd.DataFrame, timeframe: str = '5m') -> Dict:
+        """Hourly volume ≥ 75% of average 24h hourly volume (адаптивно для разных таймфреймов)"""
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty:
+            result['passed'] = True
+            return result
+        
+        # Определяем количество свечей для 1 часа и 24 часов
+        timeframe_minutes = {
+            '1m': 1,
+            '5m': 5,
+            '15m': 15,
+            '1h': 60,
+            '4h': 240,
+            '1d': 1440
+        }
+        
+        tf_minutes = timeframe_minutes.get(timeframe, 5)
+        candles_1h = max(1, int(60 / tf_minutes))
+        candles_24h = max(1, int(1440 / tf_minutes))
+        
+        if len(df) < candles_24h:
+            result['passed'] = True
+            return result
+        
+        # Последний час
+        last_hour = df.tail(candles_1h)
+        hourly_volume = last_hour['volume'].sum()
+        
+        # Средний часовой объём за 24h
+        full_24h = df.tail(candles_24h)
+        avg_hourly_volume = full_24h['volume'].sum() / 24
+        
+        if avg_hourly_volume == 0:
+            result['passed'] = True
+            return result
+        
+        ratio = hourly_volume / avg_hourly_volume
+        
+        if ratio < MarketFilters.MIN_HOURLY_VOLUME_RATIO:
+            result['reason'] = f"Hourly volume {ratio*100:.1f}% < {MarketFilters.MIN_HOURLY_VOLUME_RATIO*100}%"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    # ========================================================================
+    # ИНДИКАТОРЫ
+    # ========================================================================
+    
+    @staticmethod
+    def check_indicators(df: pd.DataFrame, direction: str) -> Dict:
+        """
+        Проверка индикаторов:
+        - RSI для лонга ≤ 68
+        - RSI для шорта ≥ 32
+        - ADX ≥ 18 и ≤ 45
+        """
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 20:
+            result['passed'] = True
+            return result
+        
+        from ta.momentum import RSIIndicator
+        
+        # RSI
+        rsi_series = RSIIndicator(close=df['close'], window=14).rsi()
+        rsi = rsi_series.iloc[-1]
+        
+        # Проверка на NaN
+        if pd.isna(rsi):
+            result['passed'] = True
+            return result
+        
+        if direction == 'LONG' and rsi > MarketFilters.RSI_MAX_LONG:
+            result['reason'] = f"RSI {rsi:.1f} > {MarketFilters.RSI_MAX_LONG} for LONG"
+            return result
             
-            if btc_df is None or btc_df.empty or len(btc_df) < 200:
-                # If we can't get BTC data, allow signal (don't block)
-                result['passed'] = True
-                result['reason'] = "BTC data unavailable, filter skipped"
-                return result
-            
-            # Calculate EMA50 and EMA200
-            ema50 = EMAIndicator(close=btc_df['close'], window=50).ema_indicator()
-            ema200 = EMAIndicator(close=btc_df['close'], window=200).ema_indicator()
-            
-            # Calculate ADX
+        if direction == 'SHORT' and rsi < MarketFilters.RSI_MIN_SHORT:
+            result['reason'] = f"RSI {rsi:.1f} < {MarketFilters.RSI_MIN_SHORT} for SHORT"
+            return result
+        
+        # ADX
             adx_indicator = ADXIndicator(
-                high=btc_df['high'],
-                low=btc_df['low'],
-                close=btc_df['close'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
                 window=14
             )
-            adx = adx_indicator.adx()
-            
-            # Get latest values
-            btc_price = btc_df.iloc[-1]['close']
-            btc_ema50 = ema50.iloc[-1]
-            btc_ema200 = ema200.iloc[-1]
-            btc_adx = adx.iloc[-1]
-            
-            # Check ADX first
-            if btc_adx < MarketFilters.BTC_ADX_MIN:
-                result['reason'] = f"BTC ADX {btc_adx:.1f} < {MarketFilters.BTC_ADX_MIN} (weak trend)"
-                return result
-            
-            if direction == 'LONG':
-                # For LONG: BTC > EMA200 and EMA50 > EMA200
-                if btc_price <= btc_ema200:
-                    result['reason'] = f"BTC price ${btc_price:.0f} below EMA200 ${btc_ema200:.0f} (bearish)"
-                    return result
-                
-                if btc_ema50 <= btc_ema200:
-                    result['reason'] = f"BTC EMA50 below EMA200 (bearish trend)"
-                    return result
-            
-            else:  # SHORT
-                # For SHORT: BTC < EMA200 and EMA50 < EMA200
-                if btc_price >= btc_ema200:
-                    result['reason'] = f"BTC price ${btc_price:.0f} above EMA200 ${btc_ema200:.0f} (bullish)"
-                    return result
-                
-                if btc_ema50 >= btc_ema200:
-                    result['reason'] = f"BTC EMA50 above EMA200 (bullish trend)"
-                    return result
-            
+        adx_series = adx_indicator.adx()
+        adx = adx_series.iloc[-1]
+        
+        # Проверка на NaN
+        if pd.isna(adx):
             result['passed'] = True
-            result['reason'] = "BTC trend filter passed"
+            return result
+        
+        if adx < MarketFilters.ADX_MIN:
+            result['reason'] = f"ADX {adx:.1f} < {MarketFilters.ADX_MIN}"
+            return result
+        
+        if adx > MarketFilters.ADX_MAX:
+            result['reason'] = f"ADX {adx:.1f} > {MarketFilters.ADX_MAX}"
+            return result
+        
+        result['passed'] = True
+        return result
+            
+    # ========================================================================
+    # КАЧЕСТВО СИГНАЛА
+    # ========================================================================
+    
+    @staticmethod
+    def check_signal_quality(df: pd.DataFrame, direction: str) -> Dict:
+        """
+        Проверка качества сигнала:
+        - Импульсная свеча ≥ 1.25× среднего тела
+        - Не более 3 грязных свечей за 10 свечей
+        - Наклон EMA50 в нужную сторону ≥ 7 из 10
+        - StdDev 10 свечей ≤ 1.25× StdDev 50 свечей
+        - Максимум 3 пила-свечи за 12 свечей
+        """
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 50:
+            result['passed'] = True
+            return result
+                
+        # Среднее тело за 20 свечей
+        recent_20 = df.tail(20)
+        avg_body = (recent_20['close'] - recent_20['open']).abs().mean()
+        
+        # Проверка грязных свечей (хвосты > 60%)
+        recent_10 = df.tail(10)
+        dirty_count = 0
+        
+        for idx, row in recent_10.iterrows():
+            body = abs(row['close'] - row['open'])
+            full_range = row['high'] - row['low']
+            
+            if full_range > 0:
+                body_ratio = body / full_range
+                if body_ratio < (1 - MarketFilters.DIRTY_CANDLE_TAIL_RATIO):
+                    dirty_count += 1
+        
+        if dirty_count > MarketFilters.MAX_DIRTY_CANDLES:
+            result['reason'] = f"Dirty candles {dirty_count} > {MarketFilters.MAX_DIRTY_CANDLES}"
             return result
             
-        except Exception as e:
-            # On error, allow signal (don't block)
-            print(f"[ERROR] BTC trend filter error: {e}")
+        # Наклон EMA50
+        ema50 = EMAIndicator(close=df['close'], window=50).ema_indicator()
+        ema50_recent = ema50.tail(10)
+        
+        # Проверка на NaN в EMA50
+        if ema50_recent.isna().any():
             result['passed'] = True
-            result['reason'] = f"BTC filter error: {str(e)}, filter skipped"
+            return result
+                
+        slope_count = 0
+        for i in range(1, len(ema50_recent)):
+            if pd.isna(ema50_recent.iloc[i]) or pd.isna(ema50_recent.iloc[i-1]):
+                continue
+            if direction == 'LONG' and ema50_recent.iloc[i] > ema50_recent.iloc[i-1]:
+                slope_count += 1
+            elif direction == 'SHORT' and ema50_recent.iloc[i] < ema50_recent.iloc[i-1]:
+                slope_count += 1
+        
+        if slope_count < MarketFilters.EMA50_SLOPE_MIN_CANDLES:
+            result['reason'] = f"EMA50 slope {slope_count}/10 < {MarketFilters.EMA50_SLOPE_MIN_CANDLES}/10"
+            return result
+            
+        # StdDev check
+        stddev_10 = df['close'].tail(10).std()
+        stddev_50 = df['close'].tail(50).std()
+        
+        # Проверка на NaN
+        if pd.isna(stddev_10) or pd.isna(stddev_50):
+            result['passed'] = True
+            return result
+        
+        if stddev_50 > 0 and stddev_10 / stddev_50 > MarketFilters.MAX_STDDEV_RATIO:
+            result['reason'] = f"StdDev ratio {stddev_10/stddev_50:.2f} > {MarketFilters.MAX_STDDEV_RATIO}"
+            return result
+        
+        # Пила-свечи (хвосты > 70% тела)
+        recent_12 = df.tail(12)
+        saw_count = 0
+        
+        for idx, row in recent_12.iterrows():
+            body = abs(row['close'] - row['open'])
+            upper_tail = row['high'] - max(row['close'], row['open'])
+            lower_tail = min(row['close'], row['open']) - row['low']
+            
+            if body > 0:
+                tail_ratio = (upper_tail + lower_tail) / body
+                if tail_ratio > MarketFilters.SAW_CANDLE_TAIL_RATIO:
+                    saw_count += 1
+        
+        if saw_count > MarketFilters.MAX_SAW_CANDLES:
+            result['reason'] = f"Saw candles {saw_count} > {MarketFilters.MAX_SAW_CANDLES}"
+            return result
+            
+            result['passed'] = True
             return result
     
     # ========================================================================
@@ -851,7 +969,7 @@ class MarketFilters:
     
     @staticmethod
     def _set_pause(ticker: str, minutes: int = 15):
-        """Set pause for a coin for specified minutes"""
+        """Set pause for a coin"""
         pause_until = datetime.utcnow() + timedelta(minutes=minutes)
         MarketFilters._paused_coins[ticker] = pause_until
     
@@ -864,7 +982,6 @@ class MarketFilters:
         pause_until = MarketFilters._paused_coins[ticker]
         
         if datetime.utcnow() >= pause_until:
-            # Pause expired - remove
             del MarketFilters._paused_coins[ticker]
             return False
         
@@ -882,17 +999,6 @@ class MarketFilters:
         return int(remaining) if remaining > 0 else 0
     
     @staticmethod
-    def get_paused_coins() -> Dict[str, int]:
-        """Get list of paused coins with remaining time"""
-        result = {}
-        
-        for ticker, pause_until in list(MarketFilters._paused_coins.items()):
-            remaining = MarketFilters._get_pause_remaining(ticker)
-            
-            if remaining > 0:
-                result[ticker] = remaining
-            else:
-                # Pause expired - remove
-                del MarketFilters._paused_coins[ticker]
-        
-        return result
+    def record_signal_time(ticker: str):
+        """Record signal time for cooldown"""
+        MarketFilters._last_signal_times[ticker] = datetime.utcnow()

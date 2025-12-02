@@ -24,18 +24,12 @@ TRANSLATIONS = {
 /enable - Enable bot
 /disable - Disable bot
 
-🔧 Trading pairs:
-/setpairs - Manual set pairs
-/pairs - Show current pairs list
-/topcoins - Top 200 coins status
-/refresh - Force update top 200
-
-🔧 Settings:
-/settimeframes - Timeframes
-
 🗄️ Database:
 /dbstats - Database statistics
 /cleanup - Clean old signals
+
+⚙️ Filter Control Panel:
+/filters - Open filter control panel
 """,
         'cmd_help': 'See /start for all commands',
         
@@ -110,9 +104,7 @@ TRANSLATIONS = {
         'trading': 'Trading',
         'pairs': 'Pairs',
         'timeframes': 'Timeframes',
-        'use_commands': """Use commands to change:
-/setpairs - Trading pairs
-/settimeframes - Timeframes""",
+        'use_commands': """Use /filters panel to manage all settings""",
         
         'bot_enabled': '✅ Bot enabled',
         'bot_disabled': '⏸ Bot disabled',
@@ -194,18 +186,12 @@ TRANSLATIONS = {
 /enable - Включить бота
 /disable - Выключить бота
 
-🔧 Торговые пары:
-/setpairs - Ручная установка пар
-/pairs - Показать текущий список
-/topcoins - Статус топ-200 монет
-/refresh - Принудительное обновление
-
-🔧 Настройки:
-/settimeframes - Таймфреймы
-
 🗄️ База данных:
 /dbstats - Статистика БД
 /cleanup - Очистка старых сигналов
+
+⚙️ Панель управления фильтрами:
+/filters - Открыть панель управления
 """,
         'cmd_help': 'См. /start для всех команд',
         
@@ -280,9 +266,7 @@ TRANSLATIONS = {
         'trading': 'Торговля',
         'pairs': 'Пары',
         'timeframes': 'Таймфреймы',
-        'use_commands': """Для изменения используйте команды:
-/setpairs - Торгуемые пары
-/settimeframes - Таймфреймы""",
+        'use_commands': """Используйте панель /filters для управления всеми настройками""",
         
         'bot_enabled': '✅ Бот включен',
         'bot_disabled': '⏸ Бот выключен',

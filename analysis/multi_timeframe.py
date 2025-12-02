@@ -1,5 +1,5 @@
 """
-Мультитаймфреймный анализ тренда
+Мультитаймфреймный анализ тренда и структуры
 """
 
 import pandas as pd
@@ -26,77 +26,65 @@ class MultiTimeframeAnalysis:
     @staticmethod
     def check_trend_alignment(df_higher: pd.DataFrame, df_lower: pd.DataFrame) -> Dict:
         """
-        Проверка совпадения тренда на двух таймфреймах
-        Старший = направление тренда
-        Младший = точка входа
+        Проверка совпадения тренда на двух таймфреймах (M15 и H1)
+        
+        Условия:
+        - Тренд M15 и H1 совпадает или нейтрален
+        - Запрет входа против тренда H1
         """
         
         if df_higher.empty or df_lower.empty:
             return {'aligned': False, 'higher_trend': None, 'lower_signal': None}
         
-        # Анализ старшего ТФ (тренд)
+        # Анализ старшего ТФ (H1 - тренд)
         ta_higher = TechnicalAnalysis(df_higher)
         ta_higher.calculate_all_indicators()
         trend_higher = ta_higher.get_trend_signal()
         
-        # Анализ младшего ТФ (вход)
+        # Анализ младшего ТФ (M15 - вход)
         ta_lower = TechnicalAnalysis(df_lower)
         ta_lower.calculate_all_indicators()
         trend_lower = ta_lower.get_trend_signal()
         
-        # Проверка совпадения или нейтрального тренда на старшем ТФ
         higher_direction = trend_higher['direction']
         lower_direction = trend_lower['direction']
-        
-        # Разрешаем сигнал если:
-        # 1. Тренд совпадает на обоих ТФ
-        # 2. На старшем ТФ нейтральный тренд
-        # 3. Тренд не ярко-против (не оба таймфрейма явно против)
         higher_score = trend_higher['score']
         lower_score = trend_lower['score']
         
-        # Нейтральный тренд если score между -30 и +30
-        is_neutral = abs(higher_score) < 30
+        # Нейтральный тренд если score между -25 и +25
+        higher_neutral = abs(higher_score) < 25
+        lower_neutral = abs(lower_score) < 25
         
         # Тренд совпадает
-        aligned = (higher_direction == lower_direction)
+        trends_match = (higher_direction == lower_direction)
         
-        # Не ярко-против: не оба таймфрейма явно против
-        not_strongly_against = not (abs(higher_score) > 50 and abs(lower_score) > 50 and higher_direction != lower_direction)
+        # Разрешаем если:
+        # 1. Тренды совпадают
+        # 2. Один из трендов нейтральный
+        # 3. Старший тренд нейтральный (разрешаем вход по младшему)
+        allowed = trends_match or higher_neutral or (lower_neutral and not (abs(higher_score) > 40))
         
-        # Разрешаем если: совпадает, нейтральный, или не ярко-против
-        allowed = aligned or is_neutral or not_strongly_against
-        
-        # Дополнительная проверка: на старшем ТФ цена должна быть выше EMA200 для лонга
-        # Но если тренд нейтральный или слабый, пропускаем эту проверку
-        last_higher = ta_higher.df.iloc[-1]
-        
-        # СМЯГЧЕНО: для нейтральных трендов пропускаем проверку EMA200
-        # Для сильных трендов проверяем позицию относительно EMA200
-        if is_neutral:
-            # Если тренд нейтральный - пропускаем проверку структуры
-            strong_trend = True
-        elif 'ema_200' not in last_higher or pd.isna(last_higher['ema_200']):
-            strong_trend = True  # Если нет EMA200, пропускаем проверку
-        else:
-            # Для сильных трендов: разрешаем если цена в пределах 30% от EMA200
-            price_ema_diff = abs(last_higher['close'] - last_higher['ema_200']) / last_higher['ema_200']
-            strong_trend = price_ema_diff < 0.30  # 30% допуск (очень мягко)
+        # Запрет входа против сильного тренда H1 (score > 40)
+        if abs(higher_score) > 40 and not trends_match and not higher_neutral:
+            allowed = False
         
         return {
-            'aligned': allowed and strong_trend,
+            'aligned': allowed,
             'higher_trend': higher_direction,
             'lower_signal': lower_direction,
             'higher_score': higher_score,
             'lower_score': lower_score,
-            'is_neutral': is_neutral
+            'is_neutral': higher_neutral
         }
     
     @staticmethod
     def check_pullback_opportunity(df: pd.DataFrame, direction: str) -> bool:
         """
-        Проверка наличия pullback (коррекции к уровню)
-        СМЯГЧЕНО для увеличения количества сигналов
+        Проверка наличия pullback в диапазоне 0.3-0.6 ATR
+        
+        Условия:
+        - Расстояние от EMA50 ≤ 2 ATR
+        - Pullback в диапазоне 0.3-0.6 ATR
         """
         
         if len(df) < 20:
@@ -106,39 +94,161 @@ class MultiTimeframeAnalysis:
         ta.calculate_all_indicators()
         
         last = ta.df.iloc[-1]
-        prev = ta.df.iloc[-2]
         atr = last['atr']
         current_price = last['close']
         
-        # Допуск в ATR: ±0.5-1 ATR (расстояние до уровня в пределах 0.5-1 ATR)
-        tolerance_min = atr * 0.5
-        tolerance_max = atr * 1.0
+        if atr == 0:
+            return False
+        
+        # Проверка расстояния от EMA50 ≤ 2 ATR
+        if 'ema_50' in last:
+            ema50_distance = abs(current_price - last['ema_50'])
+            if ema50_distance > atr * 2.0:
+                return False
+        
+        # Проверка pullback в диапазоне 0.3-0.6 ATR
+        recent = df.tail(10)
         
         if direction == 'LONG':
-            # Pullback к EMA50, RSI или S/R с допуском ±0.5-1 ATR
-            ema50_distance = abs(current_price - last['ema_50'])
-            # Проверяем, что цена в пределах 0.5-1 ATR от EMA50 (pullback к уровню)
-            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max
+            local_high = recent['high'].max()
+            pullback = local_high - current_price
+        else:
+            local_low = recent['low'].min()
+            pullback = current_price - local_low
+        
+        min_pullback = atr * 0.3
+        max_pullback = atr * 0.6
+        
+        return min_pullback <= pullback <= max_pullback
+    
+    @staticmethod
+    def check_market_structure(df: pd.DataFrame, direction: str) -> Dict:
+        """
+        Проверка структуры рынка:
+        - Для лонга: HH + HL обязательны
+        - Для шорта: LL + LH обязательны
+        """
+        result = {'passed': False, 'reason': '', 'structure': None}
+        
+        if len(df) < 30:
+            result['reason'] = "Not enough data for structure analysis"
+            return result
+        
+        recent = df.tail(30)
+        
+        # Находим локальные экстремумы
+        window = 5
+        highs = []
+        lows = []
+        
+        for i in range(window, len(recent) - window):
+            # Локальный максимум
+            if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
+                highs.append({
+                    'price': recent.iloc[i]['high'],
+                    'index': i
+                })
             
-            # RSI в разумной зоне (не сильно перекуплен) - СМЯГЧЕНО
-            rsi_ok = last['rsi'] < 75  # было много условий
+            # Локальный минимум
+            if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
+                lows.append({
+                    'price': recent.iloc[i]['low'],
+                    'index': i
+                })
+        
+        if len(highs) < 2 or len(lows) < 2:
+            result['reason'] = "Not enough swing points"
+            return result
+        
+        # Анализ структуры
+        last_two_highs = [h['price'] for h in highs[-2:]]
+        last_two_lows = [l['price'] for l in lows[-2:]]
+        
+        if direction == 'LONG':
+            # HH + HL обязательны
+            higher_high = last_two_highs[-1] > last_two_highs[-2]
+            higher_low = last_two_lows[-1] > last_two_lows[-2]
             
-            # Цена выше EMA20 (краткосрочный тренд вверх)
-            price_above_ema20 = current_price > last['ema_21']
-            
-            return near_ema50 or rsi_ok or price_above_ema20
+            if higher_high and higher_low:
+                result['passed'] = True
+                result['structure'] = 'HH+HL'
+            else:
+                result['reason'] = f"Invalid LONG structure: HH={higher_high}, HL={higher_low}"
         
         else:  # SHORT
-            # Pullback к EMA50, RSI или S/R с допуском ±0.5-1 ATR
-            ema50_distance = abs(current_price - last['ema_50'])
-            # Проверяем, что цена в пределах 0.5-1 ATR от EMA50 (pullback к уровню)
-            near_ema50 = tolerance_min <= ema50_distance <= tolerance_max
+            # LL + LH обязательны
+            lower_low = last_two_lows[-1] < last_two_lows[-2]
+            lower_high = last_two_highs[-1] < last_two_highs[-2]
             
-            # RSI в разумной зоне (не сильно перепродан) - СМЯГЧЕНО
-            rsi_ok = last['rsi'] > 25  # было много условий
-            
-            # Цена ниже EMA20 (краткосрочный тренд вниз)
-            price_below_ema20 = current_price < last['ema_21']
-            
-            return near_ema50 or rsi_ok or price_below_ema20
-
+            if lower_low and lower_high:
+                result['passed'] = True
+                result['structure'] = 'LL+LH'
+            else:
+                result['reason'] = f"Invalid SHORT structure: LL={lower_low}, LH={lower_high}"
+        
+        return result
+    
+    @staticmethod
+    def check_mini_trend(df: pd.DataFrame, direction: str) -> Dict:
+        """
+        Мини-тренд: минимум 3 из последних 4 свечей в направлении сигнала
+        """
+        result = {'passed': False, 'reason': '', 'count': 0}
+        
+        if len(df) < 4:
+            result['reason'] = "Not enough data for mini-trend"
+            return result
+        
+        recent = df.tail(4)
+        count = 0
+        
+        for idx, row in recent.iterrows():
+            if direction == 'LONG' and row['close'] > row['open']:
+                count += 1
+            elif direction == 'SHORT' and row['close'] < row['open']:
+                count += 1
+        
+        result['count'] = count
+        
+        if count >= 3:
+            result['passed'] = True
+        else:
+            result['reason'] = f"Mini-trend: only {count}/4 candles in {direction} direction"
+        
+        return result
+    
+    @staticmethod
+    def check_ema50_slope(df: pd.DataFrame, direction: str) -> Dict:
+        """
+        Наклон EMA50 в нужную сторону ≥ 7 из 10 свечей
+        """
+        result = {'passed': False, 'reason': '', 'slope_count': 0}
+        
+        if len(df) < 60:  # Нужно 50 для EMA + 10 для анализа
+            result['passed'] = True  # Пропускаем если недостаточно данных
+            return result
+        
+        ta = TechnicalAnalysis(df)
+        ta.calculate_all_indicators()
+        
+        if 'ema_50' not in ta.df.columns:
+            result['passed'] = True
+            return result
+        
+        ema50 = ta.df['ema_50'].tail(10)
+        
+        slope_count = 0
+        for i in range(1, len(ema50)):
+            if direction == 'LONG' and ema50.iloc[i] > ema50.iloc[i-1]:
+                slope_count += 1
+            elif direction == 'SHORT' and ema50.iloc[i] < ema50.iloc[i-1]:
+                slope_count += 1
+        
+        result['slope_count'] = slope_count
+        
+        if slope_count >= 7:
+            result['passed'] = True
+        else:
+            result['reason'] = f"EMA50 slope: only {slope_count}/10 candles in {direction} direction"
+        
+        return result

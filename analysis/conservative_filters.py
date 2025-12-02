@@ -1,5 +1,6 @@
 """
-Ультраконсервативные фильтры перед генерацией сигнала
+Conservative filters for signal validation
+Full implementation of level quality and additional checks
 """
 
 import pandas as pd
@@ -8,325 +9,46 @@ from exchange.xt_client import XTClient
 
 
 class ConservativeFilters:
-    """Фильтры для отсева некачественных сигналов"""
+    """Фильтры качества сигнала и уровней"""
     
-    # Константы (СМЯГЧЕНЫ для увеличения количества сигналов)
-    TOP_COINS_LIMIT = 200
-    MIN_VOLUME_24H = 500_000  # $500K минимум (было $2.5M)
-    MAX_SPREAD_PERCENT = 0.5  # 0.5% максимум (было 0.35%)
-    MIN_ATR_RATIO = 0.0  # Минимальная дистанция до ближайшего уровня в ATR (не используется)
-    MAX_ATR_RATIO = 4.0  # Максимальный размер стопа в ATR (≤ 4 ATR)
-    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 0.6  # Минимальная дистанция до противоположного уровня (≥ 0.6 ATR)
+    # ========================================================================
+    # УРОВНИ
+    # ========================================================================
     
-    # Минимальная корреляция с BTC/ETH для альткоинов
-    MIN_BTC_CORRELATION = -0.3  # Не должно быть сильной отрицательной корреляции
+    MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
+    MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
+    HTF_VOLUME_MULTIPLIER = 1.3  # HTF: объём ≥ 1.3× среднего
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.4  # Дистанция до противоположного уровня ≥ 1.4 ATR
+    BREAKOUT_BODY_RATIO = 0.55  # Свеча пробоя: тело ≥ 55% выше/ниже уровня
     
-    # Channel Position Filter - адаптивные зоны
+    # ========================================================================
+    # CHANNEL POSITION
+    # ========================================================================
+    
+    # Адаптивные зоны по волатильности (не используются в новой версии)
     CHANNEL_ZONES = {
-        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60},    # ATR < 1%: запрет 40-60%
-        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65}, # ATR 1-3%: запрет 35-65%
-        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}  # ATR > 3%: запрет 30-70%
+        'low_volatility': {'atr_max': 1.0, 'forbidden_min': 0.40, 'forbidden_max': 0.60},
+        'medium_volatility': {'atr_max': 3.0, 'forbidden_min': 0.35, 'forbidden_max': 0.65},
+        'high_volatility': {'atr_max': 100.0, 'forbidden_min': 0.30, 'forbidden_max': 0.70}
     }
     
-    @staticmethod
-    async def check_top_100(ticker: str, client: XTClient) -> bool:
-        """Проверка, что монета в ТОП-300 по капитализации"""
-        # TODO: Интеграция с CoinGecko/CoinMarketCap API
-        # Пока упрощённо - все пары из списка считаем ТОП-300
-        return True
+    # ========================================================================
+    # VOLUME CONTRACTION
+    # ========================================================================
     
-    @staticmethod
-    async def check_volume(ticker: str, client: XTClient) -> Optional[float]:
-        """Проверка объёма торгов за 24ч"""
-        try:
-            ticker_data = await client.get_ticker(ticker)
-            
-            if not ticker_data:
-                return None
-            
-            # Объём в USDT за 24ч
-            volume_24h = ticker_data.get('quoteVolume', 0)
-            
-            if volume_24h < ConservativeFilters.MIN_VOLUME_24H:
-                return None
-            
-            return volume_24h
-            
-        except Exception as e:
-            print(f"Ошибка проверки объёма {ticker}: {e}")
-            return None
+    VOLUME_CONTRACTION_RATIO = 0.8  # Откат на пониженном объёме < 80% среднего
     
-    @staticmethod
-    async def check_spread(ticker: str, client: XTClient) -> Optional[float]:
-        """Проверка спреда"""
-        try:
-            orderbook = await client.get_orderbook(ticker, limit=1)
-            
-            if not orderbook or not orderbook.get('bids') or not orderbook.get('asks'):
-                return None
-            
-            best_bid = orderbook['bids'][0][0]
-            best_ask = orderbook['asks'][0][0]
-            
-            spread_percent = ((best_ask - best_bid) / best_bid) * 100
-            
-            if spread_percent > ConservativeFilters.MAX_SPREAD_PERCENT:
-                return None
-            
-            return spread_percent
-            
-        except Exception as e:
-            print(f"Ошибка проверки спреда {ticker}: {e}")
-            return None
+    # ========================================================================
+    # BID/ASK IMBALANCE
+    # ========================================================================
     
-    @staticmethod
-    def check_volatility(df: pd.DataFrame, atr: float, entry: float, stop: float) -> bool:
-        """Проверка волатильности и размера стопа относительно ATR"""
-        
-        # Размер стопа в ATR
-        stop_distance = abs(entry - stop)
-        atr_ratio = stop_distance / atr if atr > 0 else 999
-        
-        # Стоп должен быть не больше 3 ATR
-        if atr_ratio > ConservativeFilters.MAX_ATR_RATIO:
-            return False
-        
-        return True
-    
-    @staticmethod
-    def check_level_quality(df: pd.DataFrame, level: float, direction: str) -> bool:
-        """
-        Проверка качества уровня: минимум 1 касание + подтверждение объёмом
-        """
-        if df.empty or len(df) < 20:
-            return False
-        
-        tolerance = level * 0.005  # 0.5% допуск (было 0.2%)
-        
-        touches = 0
-        
-        # Проверяем последние 50 свечей
-        recent = df.tail(50)
-        
-        for i in range(len(recent)):
-            row = recent.iloc[i]
-            low = row['low']
-            high = row['high']
-            
-            if direction == 'LONG':
-                # Для LONG проверяем касание уровня снизу (low)
-                if abs(low - level) <= tolerance:
-                    touches += 1
-            else:  # SHORT
-                # Для SHORT проверяем касание уровня сверху (high)
-                if abs(high - level) <= tolerance:
-                    touches += 1
-        
-        # Минимум 1 касание + подтверждение объёмом
-        if touches < 1:
-            return False
-        
-        # Проверка подтверждения объёмом: объём при касании должен быть выше среднего
-        volume_confirmed = False
-        if touches > 0:
-            avg_volume = recent['volume'].mean()
-            for i in range(len(recent)):
-                row = recent.iloc[i]
-                low = row['low']
-                high = row['high']
-                volume = row['volume']
-                
-                if direction == 'LONG' and abs(low - level) <= tolerance:
-                    if volume > avg_volume * 0.8:  # Объём при касании ≥ 80% от среднего
-                        volume_confirmed = True
-                        break
-                elif direction == 'SHORT' and abs(high - level) <= tolerance:
-                    if volume > avg_volume * 0.8:
-                        volume_confirmed = True
-                        break
-        
-        return volume_confirmed
-    
-    @staticmethod
-    def check_distance_to_opposite_level(df: pd.DataFrame, entry: float, 
-                                        direction: str, atr: float) -> bool:
-        """Проверка дистанции до ближайшего противонаправленного уровня (≥ 0.6 ATR)"""
-        
-        # Находим локальные максимумы и минимумы
-        window = 20
-        if len(df) < window:
-            return False
-        
-        recent = df.tail(50)
-        
-        if direction == 'LONG':
-            # Для лонга проверяем ближайшее сопротивление сверху
-            # Используем rolling без center=True для корректной работы на границах
-            rolling_max = recent['high'].rolling(window=window, min_periods=1).max()
-            # Находим локальные максимумы (где high == rolling_max и это не граница)
-            resistances = []
-            for i in range(window, len(recent) - window):
-                if recent.iloc[i]['high'] == rolling_max.iloc[i]:
-                    resistances.append(recent.iloc[i]['high'])
-            
-            if len(resistances) == 0:
-                return True
-            
-            nearest_resistance = min([r for r in resistances if r > entry], default=entry * 1.1)
-            distance = nearest_resistance - entry
-            
-        else:  # SHORT
-            # Для шорта проверяем ближайшую поддержку снизу
-            # Используем rolling без center=True для корректной работы на границах
-            rolling_min = recent['low'].rolling(window=window, min_periods=1).min()
-            # Находим локальные минимумы (где low == rolling_min и это не граница)
-            supports = []
-            for i in range(window, len(recent) - window):
-                if recent.iloc[i]['low'] == rolling_min.iloc[i]:
-                    supports.append(recent.iloc[i]['low'])
-            
-            if len(supports) == 0:
-                return True
-            
-            nearest_support = max([s for s in supports if s < entry], default=entry * 0.9)
-            distance = entry - nearest_support
-        
-        # Дистанция до противоположного уровня должна быть ≥ 0.6 ATR
-        return distance >= (atr * ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR)
-    
-    @staticmethod
-    def check_channel_position(df: pd.DataFrame, entry: float, atr_percent: float, direction: str) -> Dict:
-        """
-        Channel Position Filter (адаптивный): не входить в сделку в середине канала
-        
-        Если ATR% < 1% → запрет зоны 35–65% диапазона
-        Если ATR% от 1% до 3% → запрет зоны 30–70%
-        Если ATR% > 3% → запрет зоны 25–75%
-        
-        Returns:
-            {'passed': bool, 'reason': str, 'position_percent': float}
-        """
-        result = {
-            'passed': False,
-            'reason': '',
-            'position_percent': None
-        }
-        
-        if df.empty or len(df) < 20:
-            result['passed'] = True
-            result['reason'] = "Not enough data for channel check"
-            return result
-        
-        # Находим локальный High и Low за последние 50 свечей
-        recent = df.tail(50)
-        local_high = recent['high'].max()
-        local_low = recent['low'].min()
-        
-        if local_high == local_low:
-            result['passed'] = True
-            result['reason'] = "No price range (high == low)"
-            return result
-        
-        # Позиция цены в канале (0 = low, 1 = high)
-        channel_range = local_high - local_low
-        position_percent = (entry - local_low) / channel_range
-        result['position_percent'] = position_percent
-        
-        # Определяем запретную зону по волатильности
-        if atr_percent < 1.0:
-            zone = ConservativeFilters.CHANNEL_ZONES['low_volatility']
-        elif atr_percent <= 3.0:
-            zone = ConservativeFilters.CHANNEL_ZONES['medium_volatility']
-        else:
-            zone = ConservativeFilters.CHANNEL_ZONES['high_volatility']
-        
-        forbidden_min = zone['forbidden_min']
-        forbidden_max = zone['forbidden_max']
-        
-        # Проверяем, находится ли цена в запретной зоне
-        if forbidden_min <= position_percent <= forbidden_max:
-            result['reason'] = f"Price in forbidden channel zone: {position_percent*100:.1f}% (forbidden: {forbidden_min*100:.0f}%-{forbidden_max*100:.0f}% for ATR {atr_percent:.2f}%)"
-            return result
-        
-        # Дополнительная проверка: для LONG цена должна быть ближе к low, для SHORT - к high
-        if direction == 'LONG' and position_percent > 0.7:
-            result['reason'] = f"LONG entry too high in channel: {position_percent*100:.1f}% > 70%"
-            return result
-        
-        if direction == 'SHORT' and position_percent < 0.3:
-            result['reason'] = f"SHORT entry too low in channel: {position_percent*100:.1f}% < 30%"
-            return result
-        
-        result['passed'] = True
-        return result
-    
-    @staticmethod
-    async def check_btc_eth_correlation(ticker: str, direction: str, client: XTClient) -> bool:
-        """
-        Проверка корреляции с BTC/ETH
-        Для альткоинов: не входим против сильного движения BTC/ETH
-        Требование: BTC/ETH > 1.5% за 15 минут + ADX > 20
-        """
-        
-        # Для самих BTC/ETH этот фильтр не применяется
-        if ticker in ['BTC/USDT', 'ETH/USDT', 'BTCUSDT', 'ETHUSDT']:
-            return True
-        
-        try:
-            from utils.cache import btc_cache
-            from ta.trend import ADXIndicator
-            from ta.trend import EMAIndicator
-            
-            # Получаем данные BTC 1m для проверки движения за 15 минут
-            btc_df_1m = await btc_cache.get_btc_ohlcv_1m(client)
-            if btc_df_1m is None or btc_df_1m.empty or len(btc_df_1m) < 15:
-                return True  # Если нет данных, пропускаем фильтр
-            
-            # Получаем данные BTC 1h для ADX
-            btc_df_1h = await btc_cache.get_btc_ohlcv_1h(client)
-            if btc_df_1h is None or btc_df_1h.empty or len(btc_df_1h) < 200:
-                return True  # Если нет данных, пропускаем фильтр
-            
-            # Проверяем движение BTC за последние 15 минут
-            recent_15min = btc_df_1m.tail(15)
-            price_15min_ago = recent_15min.iloc[0]['open']
-            current_price = recent_15min.iloc[-1]['close']
-            
-            if price_15min_ago == 0:
-                return True
-            
-            btc_change_15min = ((current_price - price_15min_ago) / price_15min_ago) * 100
-            
-            # Рассчитываем ADX на 1h
-            adx_indicator = ADXIndicator(
-                high=btc_df_1h['high'],
-                low=btc_df_1h['low'],
-                close=btc_df_1h['close'],
-                window=14
-            )
-            adx = adx_indicator.adx().iloc[-1]
-            
-            # Проверка: BTC/ETH движение > 1.5% за 15 мин И ADX > 20
-            if abs(btc_change_15min) > 1.5 and adx > 20:
-                # Если BTC сильно падает, не открываем лонги по альткоинам
-                if direction == 'LONG' and btc_change_15min < -1.5:
-                    return False
-                
-                # Если BTC сильно растёт, не открываем шорты по альткоинам
-                if direction == 'SHORT' and btc_change_15min > 1.5:
-                    return False
-            
-            return True
-            
-        except Exception as e:
-            print(f"Ошибка проверки BTC корреляции: {e}")
-            return True  # При ошибке пропускаем фильтр
+    MAX_BID_ASK_IMBALANCE = 0.35  # Дисбаланс Bid/Ask ≤ 35%
     
     @staticmethod
     async def check_all_filters(ticker: str, df: pd.DataFrame, entry: float, 
                                stop: float, atr: float, direction: str, 
                                client: XTClient, atr_percent: float = None) -> Dict:
-        """Проверка всех фильтров. Возвращает результат и метаданные"""
+        """Проверка всех консервативных фильтров"""
         
         result = {
             'passed': False,
@@ -336,54 +58,346 @@ class ConservativeFilters:
             'reasons': []
         }
         
-        # 1. ТОП-300
-        if not await ConservativeFilters.check_top_100(ticker, client):
-            result['reasons'].append("Не ТОП-300")
+        # 1. Находим ближайший уровень поддержки/сопротивления
+        support_resistance_level = ConservativeFilters._find_nearest_level(df, entry, direction)
+        
+        if support_resistance_level:
+            # 1. Качество уровня (минимум 2 касания)
+            level_quality = ConservativeFilters.check_level_quality(df, support_resistance_level, direction)
+            if not level_quality['passed']:
+                result['reasons'].append(level_quality['reason'])
+                return result
+            
+            # 2. Качество HTF уровня (минимум 2 касания + объём)
+            htf_quality = ConservativeFilters.check_htf_level_quality(df, support_resistance_level, direction)
+            if not htf_quality['passed']:
+                result['reasons'].append(htf_quality['reason'])
+                return result
+            
+            # 4. Свеча пробоя уровня (тело ≥ 55% выше/ниже уровня)
+            breakout_check = ConservativeFilters.check_breakout_candle(df, support_resistance_level, direction)
+            if not breakout_check['passed']:
+                result['reasons'].append(breakout_check['reason'])
+                return result
+        
+        # 3. Дистанция до противоположного уровня ≥ 1.4 ATR
+        opposite_distance = ConservativeFilters.check_opposite_level_distance(df, entry, direction, atr)
+        if not opposite_distance['passed']:
+            result['reasons'].append(opposite_distance['reason'])
             return result
         
-        # 2. Объём
-        volume = await ConservativeFilters.check_volume(ticker, client)
-        if volume is None:
-            result['reasons'].append(f"Объём < ${ConservativeFilters.MIN_VOLUME_24H:,.0f}")
-            return result
-        result['volume_24h'] = volume
-        
-        # 3. Спред
-        spread = await ConservativeFilters.check_spread(ticker, client)
-        if spread is None:
-            result['reasons'].append(f"Спред > {ConservativeFilters.MAX_SPREAD_PERCENT}%")
-            return result
-        result['spread'] = spread
-        
-        # 4. Волатильность и размер стопа (≤ 3 ATR)
-        stop_distance = abs(entry - stop)
-        atr_ratio = stop_distance / atr if atr > 0 else 999
-        if not ConservativeFilters.check_volatility(df, atr, entry, stop):
-            result['reasons'].append(f"Стоп {atr_ratio:.2f} ATR > {ConservativeFilters.MAX_ATR_RATIO} ATR")
+        # 5. Откат на пониженном объёме (volume contraction)
+        volume_contraction = ConservativeFilters.check_volume_contraction(df)
+        if not volume_contraction['passed']:
+            result['reasons'].append(volume_contraction['reason'])
             return result
         
-        # 5. Качество уровня (минимум 1 касание + подтверждение объёмом)
-        if not ConservativeFilters.check_level_quality(df, entry, direction):
-            result['reasons'].append("Качество уровня: недостаточно касаний или нет подтверждения объёмом")
-            return result
-        
-        # 6. Дистанция до противоположного уровня (≥ 0.6 ATR)
-        if not ConservativeFilters.check_distance_to_opposite_level(df, entry, direction, atr):
-            result['reasons'].append(f"Дистанция до противоположного уровня < {ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR} ATR")
-            return result
-        
-        # 7. Channel Position Filter (адаптивный)
-        if atr_percent is not None:
-            channel_check = ConservativeFilters.check_channel_position(df, entry, atr_percent, direction)
-            if not channel_check['passed']:
-                result['reasons'].append(channel_check['reason'])
-                return result  # Выходим только если фильтр НЕ прошёл!
-        
-        # 8. BTC/ETH корреляция
-        if not await ConservativeFilters.check_btc_eth_correlation(ticker, direction, client):
-            result['reasons'].append("Неблагоприятное движение BTC/ETH")
+        # 6. Дисбаланс Bid/Ask ≤ 35%
+        bid_ask_check = await ConservativeFilters.check_bid_ask_imbalance(ticker, client)
+        if not bid_ask_check['passed']:
+            result['reasons'].append(bid_ask_check['reason'])
             return result
         
         # Все фильтры пройдены
         result['passed'] = True
         return result
+    
+    @staticmethod
+    def _find_nearest_level(df: pd.DataFrame, entry: float, direction: str) -> Optional[float]:
+        """Найти ближайший уровень поддержки/сопротивления"""
+        if df.empty or len(df) < 50:
+            return None
+        
+        recent = df.tail(50)
+        window = 10
+        
+        if direction == 'LONG':
+            # Для лонга: ищем ближайшую поддержку снизу
+            supports = []
+            for i in range(window, len(recent) - window):
+                if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
+                    if recent.iloc[i]['low'] < entry:
+                        supports.append(recent.iloc[i]['low'])
+            
+            if supports:
+                return max(supports)  # Ближайшая поддержка снизу
+        else:
+            # Для шорта: ищем ближайшее сопротивление сверху
+            resistances = []
+            for i in range(window, len(recent) - window):
+                if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
+                    if recent.iloc[i]['high'] > entry:
+                        resistances.append(recent.iloc[i]['high'])
+            
+            if resistances:
+                return min(resistances)  # Ближайшее сопротивление сверху
+        
+        return None
+    
+    @staticmethod
+    def check_level_quality(df: pd.DataFrame, level: float, direction: str) -> Dict:
+        """
+        Проверка качества уровня: минимум 2 касания
+        """
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 50:
+            result['passed'] = True
+            return result
+        
+        tolerance = level * 0.003  # 0.3% допуск
+        touches = 0
+        
+        recent = df.tail(50)
+        
+        for idx, row in recent.iterrows():
+            low = row['low']
+            high = row['high']
+            
+            if direction == 'LONG':
+                if abs(low - level) <= tolerance:
+                    touches += 1
+            else:
+                if abs(high - level) <= tolerance:
+                    touches += 1
+        
+        if touches < ConservativeFilters.MIN_LEVEL_TOUCHES:
+            result['reason'] = f"Level touches {touches} < {ConservativeFilters.MIN_LEVEL_TOUCHES}"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_htf_level_quality(df: pd.DataFrame, level: float, direction: str) -> Dict:
+        """
+        HTF уровень: минимум 2 касания + объём ≥ 1.3× среднего
+        """
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 50:
+            result['passed'] = True
+            return result
+        
+        tolerance = level * 0.005  # 0.5% допуск для HTF
+        touches = 0
+        volume_confirmed = False
+        
+        recent = df.tail(50)
+        avg_volume = recent['volume'].mean()
+        
+        for idx, row in recent.iterrows():
+            low = row['low']
+            high = row['high']
+            volume = row['volume']
+            
+            touched = False
+            
+            if direction == 'LONG':
+                if abs(low - level) <= tolerance:
+                    touched = True
+            else:
+                if abs(high - level) <= tolerance:
+                    touched = True
+            
+            if touched:
+                touches += 1
+                if volume >= avg_volume * ConservativeFilters.HTF_VOLUME_MULTIPLIER:
+                    volume_confirmed = True
+        
+        if touches < ConservativeFilters.MIN_HTF_LEVEL_TOUCHES:
+            result['reason'] = f"HTF level touches {touches} < {ConservativeFilters.MIN_HTF_LEVEL_TOUCHES}"
+            return result
+        
+        if not volume_confirmed:
+            result['reason'] = f"HTF level not confirmed by volume (need ≥ {ConservativeFilters.HTF_VOLUME_MULTIPLIER}× avg)"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_opposite_level_distance(df: pd.DataFrame, entry: float, 
+                                      direction: str, atr: float) -> Dict:
+        """Дистанция до противоположного уровня ≥ 1.4 ATR"""
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 50 or atr == 0:
+            result['passed'] = True
+            return result
+        
+        recent = df.tail(50)
+        window = 10
+        
+        if direction == 'LONG':
+            # Для лонга: ищем ближайшее сопротивление сверху
+            resistances = []
+            for i in range(window, len(recent) - window):
+                if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
+                    if recent.iloc[i]['high'] > entry:
+                        resistances.append(recent.iloc[i]['high'])
+            
+            if not resistances:
+                result['passed'] = True
+                return result
+            
+            nearest = min(resistances)
+            distance = nearest - entry
+            
+        else:  # SHORT
+            # Для шорта: ищем ближайшую поддержку снизу
+            supports = []
+            for i in range(window, len(recent) - window):
+                if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
+                    if recent.iloc[i]['low'] < entry:
+                        supports.append(recent.iloc[i]['low'])
+            
+            if not supports:
+                result['passed'] = True
+                return result
+            
+            nearest = max(supports)
+            distance = entry - nearest
+        
+        min_distance = atr * ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR
+        
+        if distance < min_distance:
+            result['reason'] = f"Opposite level distance {distance/atr:.2f} ATR < {ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR} ATR"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    def check_breakout_candle(df: pd.DataFrame, level: float, direction: str) -> Dict:
+        """
+        Свеча пробоя уровня: тело ≥ 55% свечи выше/ниже уровня
+        Или цена находится близко к уровню (в пределах 0.5% от уровня)
+        """
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 5:
+            result['passed'] = True
+            return result
+        
+        current_price = df.iloc[-1]['close']
+        level_tolerance = level * 0.005  # 0.5% допуск
+        
+        # Если цена близко к уровню (в пределах 0.5%) - разрешаем
+        if direction == 'LONG' and abs(current_price - level) <= level_tolerance:
+            result['passed'] = True
+            return result
+        elif direction == 'SHORT' and abs(current_price - level) <= level_tolerance:
+            result['passed'] = True
+            return result
+        
+        # Проверяем последние 5 свечей на наличие пробоя
+        recent = df.tail(5)
+        
+        for idx, row in recent.iterrows():
+            body = abs(row['close'] - row['open'])
+            full_range = row['high'] - row['low']
+            
+            if full_range == 0:
+                continue
+            
+            if direction == 'LONG':
+                # Для лонга: свеча закрылась выше уровня
+                if row['close'] > level:
+                    # Проверяем, что тело ≥ 55% свечи выше уровня
+                    body_above = row['close'] - max(row['open'], level)
+                    candle_above = row['high'] - level
+                    
+                    if candle_above > 0 and body_above / candle_above >= ConservativeFilters.BREAKOUT_BODY_RATIO:
+                        result['passed'] = True
+                        return result
+            else:
+                # Для шорта: свеча закрылась ниже уровня
+                if row['close'] < level:
+                    body_below = min(row['open'], level) - row['close']
+                    candle_below = level - row['low']
+                    
+                    if candle_below > 0 and body_below / candle_below >= ConservativeFilters.BREAKOUT_BODY_RATIO:
+                        result['passed'] = True
+                        return result
+        
+        result['reason'] = f"No valid breakout candle (body ≥ {ConservativeFilters.BREAKOUT_BODY_RATIO*100:.0f}% above/below level)"
+        return result
+    
+    @staticmethod
+    def check_volume_contraction(df: pd.DataFrame) -> Dict:
+        """Откат на пониженном объёме (volume contraction)"""
+        result = {'passed': False, 'reason': ''}
+        
+        if df.empty or len(df) < 20:
+            result['passed'] = True
+            return result
+        
+        # Средний объём за последние 20 свечей
+        recent_20 = df.tail(20)
+        avg_volume = recent_20['volume'].mean()
+        
+        # Объём последних 3 свечей (откат)
+        recent_3 = df.tail(3)
+        pullback_volume = recent_3['volume'].mean()
+        
+        if avg_volume == 0:
+            result['passed'] = True
+            return result
+        
+        volume_ratio = pullback_volume / avg_volume
+        
+        # Откат должен быть на пониженном объёме
+        if volume_ratio > ConservativeFilters.VOLUME_CONTRACTION_RATIO:
+            result['reason'] = f"Pullback volume {volume_ratio*100:.0f}% > {ConservativeFilters.VOLUME_CONTRACTION_RATIO*100:.0f}% (no contraction)"
+            return result
+        
+        result['passed'] = True
+        return result
+    
+    @staticmethod
+    async def check_bid_ask_imbalance(ticker: str, client: XTClient) -> Dict:
+        """Дисбаланс Bid/Ask ≤ 35%"""
+        result = {'passed': False, 'reason': ''}
+        
+        try:
+            orderbook = await client.get_orderbook(ticker, limit=20)
+            
+            if not orderbook:
+                result['passed'] = True
+                return result
+            
+            bids = orderbook.get('bids', [])
+            asks = orderbook.get('asks', [])
+            
+            if not bids or not asks:
+                result['passed'] = True
+                return result
+            
+            # Суммарный объём (с проверкой на пустые списки)
+            try:
+                total_bid_volume = sum(float(vol) for _, vol in bids[:10] if len(bids) > 0)
+                total_ask_volume = sum(float(vol) for _, vol in asks[:10] if len(asks) > 0)
+            except (ValueError, TypeError, IndexError) as e:
+                result['passed'] = True
+                return result
+            
+            total_volume = total_bid_volume + total_ask_volume
+            
+            if total_volume == 0:
+                result['passed'] = True
+                return result
+            
+            # Дисбаланс
+            imbalance = abs(total_bid_volume - total_ask_volume) / total_volume
+            
+            if imbalance > ConservativeFilters.MAX_BID_ASK_IMBALANCE:
+                result['reason'] = f"Bid/Ask imbalance {imbalance*100:.1f}% > {ConservativeFilters.MAX_BID_ASK_IMBALANCE*100:.0f}%"
+                return result
+            
+            result['passed'] = True
+            return result
+            
+        except Exception as e:
+            result['passed'] = True
+            return result
