@@ -1,8 +1,9 @@
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from telegram.constants import ParseMode
+from telegram.error import RetryAfter
 import config
-from database.models import Signal, BotStats, get_db
+from database.models import Signal, BotStats, SessionLocal
 from database.config_manager import ConfigManager
 from database.admin_manager import AdminManager
 from database.user_preferences import UserPreferenceManager
@@ -48,6 +49,8 @@ class TelegramBot:
         self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
         self.app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
         self._setup_handlers()
+        self._flood_control_blocked_count = 0  # Счетчик заблокированных сигналов
+        self._last_flood_notification_time = None  # Время последнего уведомления
     
     def _setup_handlers(self):
         """Настройка обработчиков команд"""
@@ -61,7 +64,6 @@ class TelegramBot:
         # Админ команды - управление ботом
         self.app.add_handler(CommandHandler("enable", self.cmd_enable))
         self.app.add_handler(CommandHandler("disable", self.cmd_disable))
-        self.app.add_handler(CommandHandler("config", self.cmd_config))
         
         # Админ команды - настройка параметров
         # ВАЖНО: Telegram не поддерживает подчеркивания в командах, используем дефисы
@@ -83,6 +85,7 @@ class TelegramBot:
         # Команда панели управления фильтрами
         self.app.add_handler(CommandHandler("filters", self.cmd_filters))  # Панель фильтров
         self.app.add_handler(CommandHandler("panel", self.cmd_filters))  # Альтернатива
+        self.app.add_handler(CommandHandler("filters_status", self.cmd_filters_status))  # Статус фильтров
         
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
@@ -96,7 +99,7 @@ class TelegramBot:
             print(f"[DEBUG] Unknown command received: {command}")
             await update.message.reply_text(f"Unknown command: {command}")
         
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|help)"), unknown_command))
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|filters_status|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
@@ -119,9 +122,10 @@ class TelegramBot:
                 logger.error(f"[BLOCKED] Invalid signal - zero levels: {ticker} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
                 return False
             
-            # Проверка на дубликаты
-            if len(set(all_levels)) < len(all_levels):
-                logger.error(f"[BLOCKED] Invalid signal - duplicate levels: {ticker} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+            # Проверка на дубликаты (tp2 и tp3 могут быть одинаковыми - это нормально)
+            critical_levels = [entry, stop, tp1, tp2]
+            if len(set(critical_levels)) < len(critical_levels):
+                logger.error(f"[BLOCKED] Invalid signal - duplicate critical levels: {ticker} entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}")
                 return False
             
             # Проверка минимальной дистанции (0.1% между уровнями)
@@ -150,25 +154,100 @@ class TelegramBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             logger.info(f"[TELEGRAM] Sending message to channel {config.TELEGRAM_CHANNEL_ID}...")
-            await self.bot.send_message(
-                chat_id=config.TELEGRAM_CHANNEL_ID,
-                text=message,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
             
-            logger.info(f"[TELEGRAM] ✅ Signal {ticker} successfully sent to channel!")
-            return True
+            # Обработка Flood control с повторной попыткой
+            import asyncio
+            
+            max_retries = 5  # Увеличиваем количество попыток
+            
+            for attempt in range(max_retries):
+                try:
+                    await self.bot.send_message(
+                        chat_id=config.TELEGRAM_CHANNEL_ID,
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"[TELEGRAM] ✅ Signal {ticker} successfully sent to channel!")
+                    return True
+                except RetryAfter as e:
+                    # Правильная обработка RetryAfter
+                    retry_delay = e.retry_after + 1  # +1 секунда для безопасности
+                    if attempt < max_retries - 1:
+                        logger.warning(f"[TELEGRAM] Flood control for {ticker}, waiting {retry_delay}s (attempt {attempt + 1}/{max_retries})...")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"[TELEGRAM] Flood control exceeded for {ticker} after {max_retries} attempts")
+                        # Увеличиваем счетчик и отправляем уведомление админу
+                        self._flood_control_blocked_count += 1
+                        await self._notify_flood_control_blocked(ticker, retry_delay)
+                        return False
+                except Exception as e:
+                    error_str = str(e)
+                    # Проверка на другие ошибки Flood control (на всякий случай)
+                    if "Flood control" in error_str or "retry_after" in error_str.lower():
+                        import re
+                        retry_match = re.search(r'retry after (\d+)', error_str, re.IGNORECASE)
+                        if retry_match:
+                            retry_delay = int(retry_match.group(1)) + 1
+                        else:
+                            retry_delay = (attempt + 1) * 5
+                        
+                        if attempt < max_retries - 1:
+                            logger.warning(f"[TELEGRAM] Flood control (generic) for {ticker}, waiting {retry_delay}s (attempt {attempt + 1}/{max_retries})...")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        else:
+                            logger.error(f"[TELEGRAM] Flood control exceeded for {ticker} after {max_retries} attempts")
+                            # Увеличиваем счетчик и отправляем уведомление админу
+                            self._flood_control_blocked_count += 1
+                            await self._notify_flood_control_blocked(ticker, retry_delay)
+                            return False
+                    else:
+                        # Другая ошибка - логируем и возвращаем False
+                        error_msg = f"Error sending signal {ticker}: {e}"
+                        logger.error(f"[TELEGRAM] {error_msg}")
+                        import traceback
+                        logger.error(f"[TELEGRAM] Traceback: {traceback.format_exc()}")
+                        try:
+                            await self.send_admin_message(error_msg)
+                        except:
+                            logger.error(f"[ERROR] Could not send admin message: {error_msg}")
+                        return False
         except Exception as e:
-            error_msg = f"Error sending signal {ticker}: {e}"
+            error_msg = f"Unexpected error sending signal {ticker}: {e}"
             logger.error(f"[TELEGRAM] {error_msg}")
             import traceback
             logger.error(f"[TELEGRAM] Traceback: {traceback.format_exc()}")
-            try:
-                await self.send_admin_message(error_msg)
-            except:
-                logger.error(f"[ERROR] Could not send admin message: {error_msg}")
             return False
+    
+    async def _notify_flood_control_blocked(self, ticker: str, retry_delay: int):
+        """Уведомление админа о блокировке из-за Flood control"""
+        from datetime import datetime
+        
+        # Отправляем уведомление не чаще раза в 5 минут
+        now = datetime.now()
+        if self._last_flood_notification_time:
+            time_since_last = (now - self._last_flood_notification_time).total_seconds()
+            if time_since_last < 300:  # 5 минут
+                return
+        
+        self._last_flood_notification_time = now
+        
+        message = (
+            f"⚠️ *Telegram API Flood Control*\n\n"
+            f"Сигнал *{ticker}* не отправлен из-за ограничения Telegram API.\n"
+            f"Ожидание: {retry_delay} сек\n"
+            f"Заблокировано сигналов: {self._flood_control_blocked_count}\n\n"
+            f"Бот автоматически повторяет попытки, но при большом количестве сигналов "
+            f"Telegram может временно блокировать отправку."
+        )
+        
+        try:
+            await self.send_admin_message(message)
+        except Exception as e:
+            logger.error(f"[ERROR] Could not send flood control notification: {e}")
     
     async def send_admin_message(self, message: str):
         """Отправка сообщения в админ-канал (или в основной, если админ-канал не указан)"""
@@ -275,7 +354,8 @@ class TelegramBot:
         # Если язык не выбран (по умолчанию 'en' но пользователь ещё не выбирал)
         # Проверяем, есть ли запись в БД
         from database.user_preferences import UserPreference
-        db = get_db()
+        from database.models import SessionLocal
+        db = SessionLocal()
         try:
             pref = db.query(UserPreference).filter(
                 UserPreference.telegram_id == str(user_id)
@@ -389,7 +469,8 @@ class TelegramBot:
         user_id = str(update.effective_user.id)
         lang = get_user_lang(user_id)
         
-        db = get_db()
+        from database.models import SessionLocal
+        db = SessionLocal()
         
         try:
             # Все сигналы
@@ -433,7 +514,8 @@ class TelegramBot:
         user_id = str(update.effective_user.id)
         lang = get_user_lang(user_id)
         
-        db = get_db()
+        from database.models import SessionLocal
+        db = SessionLocal()
         
         try:
             today_start = datetime.utcnow().replace(hour=0, minute=0, second=0)
@@ -473,7 +555,8 @@ class TelegramBot:
         user_id = str(update.effective_user.id)
         lang = get_user_lang(user_id)
         
-        db = get_db()
+        from database.models import SessionLocal
+        db = SessionLocal()
         
         try:
             week_start = datetime.utcnow() - timedelta(days=7)
@@ -512,45 +595,6 @@ class TelegramBot:
             db.close()
     
     @admin_only
-    async def cmd_config(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Текущая конфигурация"""
-        user_id = str(update.effective_user.id)
-        lang = get_user_lang(user_id)
-        
-        pairs = ConfigManager.get_trading_pairs()
-        timeframes = ConfigManager.get_timeframes()
-        enabled = ConfigManager.is_bot_enabled()
-        
-        status = t('enabled', lang) if enabled else t('disabled', lang)
-        
-        message = f"""
-{t('config_title', lang)}
-
-{t('config_status', lang, status=status)}
-
-{t('config_trading', lang)}
-{t('config_pairs', lang, pairs=', '.join(pairs))}
-{t('config_timeframes', lang, timeframes=', '.join(timeframes))}
-
-{t('use_commands', lang)}
-"""
-        try:
-            await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            # Если ошибка с Markdown, отправляем без форматирования
-            message_plain = f"""
-{t('current_settings', lang)}
-
-{t('status', lang)}: {status}
-
-{t('trading', lang)}:
-{t('pairs', lang)}: {', '.join(pairs)}
-{t('timeframes', lang)}: {', '.join(timeframes)}
-
-{t('use_commands', lang)}
-"""
-            await update.message.reply_text(message_plain.strip())
-    
     @admin_only
     async def cmd_enable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Включение бота"""
@@ -919,6 +963,25 @@ class TelegramBot:
             
         except Exception as e:
             await update.message.reply_text(f"Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    @admin_only
+    async def cmd_filters_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Вывод текущих настроек всех фильтров (то же, что кнопка '📋 Текущие настройки')"""
+        try:
+            # Загружаем текущие настройки
+            FilterSettings.get_all()
+            
+            # Используем тот же метод, что и кнопка в панели
+            text = FilterPanel.get_settings_text()
+            
+            await update.message.reply_text(
+                text,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Ошибка: {str(e)}")
             import traceback
             traceback.print_exc()
     

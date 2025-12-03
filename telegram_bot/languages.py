@@ -20,7 +20,6 @@ TRANSLATIONS = {
 /language - Change language
 
 ⚙️ Admin commands:
-/config - Current settings
 /enable - Enable bot
 /disable - Disable bot
 
@@ -182,7 +181,6 @@ TRANSLATIONS = {
 /language - Сменить язык
 
 ⚙️ Админ-команды:
-/config - Текущие настройки
 /enable - Включить бота
 /disable - Выключить бота
 

@@ -39,6 +39,12 @@ class ConservativeFilters:
     VOLUME_CONTRACTION_RATIO = 0.8  # Откат на пониженном объёме < 80% среднего
     
     # ========================================================================
+    # PATTERN CHECK
+    # ========================================================================
+    
+    PATTERN_CHECK_ENABLED = True  # Включить проверку паттерна
+    
+    # ========================================================================
     # BID/ASK IMBALANCE
     # ========================================================================
     
@@ -62,13 +68,13 @@ class ConservativeFilters:
         support_resistance_level = ConservativeFilters._find_nearest_level(df, entry, direction)
         
         if support_resistance_level:
-            # 1. Качество уровня (минимум 2 касания)
+            # 1. Качество уровня (минимум N касаний из настроек)
             level_quality = ConservativeFilters.check_level_quality(df, support_resistance_level, direction)
             if not level_quality['passed']:
                 result['reasons'].append(level_quality['reason'])
                 return result
             
-            # 2. Качество HTF уровня (минимум 2 касания + объём)
+            # 2. Качество HTF уровня (минимум N касаний + объём)
             htf_quality = ConservativeFilters.check_htf_level_quality(df, support_resistance_level, direction)
             if not htf_quality['passed']:
                 result['reasons'].append(htf_quality['reason'])
@@ -80,19 +86,19 @@ class ConservativeFilters:
                 result['reasons'].append(breakout_check['reason'])
                 return result
         
-        # 3. Дистанция до противоположного уровня ≥ 1.4 ATR
+        # 3. Дистанция до противоположного уровня
         opposite_distance = ConservativeFilters.check_opposite_level_distance(df, entry, direction, atr)
         if not opposite_distance['passed']:
             result['reasons'].append(opposite_distance['reason'])
             return result
         
-        # 5. Откат на пониженном объёме (volume contraction)
+        # 5. Откат на пониженном объёме
         volume_contraction = ConservativeFilters.check_volume_contraction(df)
         if not volume_contraction['passed']:
             result['reasons'].append(volume_contraction['reason'])
             return result
         
-        # 6. Дисбаланс Bid/Ask ≤ 35%
+        # 6. Дисбаланс Bid/Ask
         bid_ask_check = await ConservativeFilters.check_bid_ask_imbalance(ticker, client)
         if not bid_ask_check['passed']:
             result['reasons'].append(bid_ask_check['reason'])
@@ -348,9 +354,11 @@ class ConservativeFilters:
         volume_ratio = pullback_volume / avg_volume
         
         # Откат должен быть на пониженном объёме
-        if volume_ratio > ConservativeFilters.VOLUME_CONTRACTION_RATIO:
-            result['reason'] = f"Pullback volume {volume_ratio*100:.0f}% > {ConservativeFilters.VOLUME_CONTRACTION_RATIO*100:.0f}% (no contraction)"
-            return result
+        # Но если объём отката не сильно превышает средний (до 100%), разрешаем
+        if volume_ratio > 1.0:  # Если объём отката больше среднего
+            if volume_ratio > ConservativeFilters.VOLUME_CONTRACTION_RATIO * 1.25:  # Более мягкая проверка
+                result['reason'] = f"Pullback volume {volume_ratio*100:.0f}% > {ConservativeFilters.VOLUME_CONTRACTION_RATIO*100*1.25:.0f}% (no contraction)"
+                return result
         
         result['passed'] = True
         return result

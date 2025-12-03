@@ -66,67 +66,77 @@ class SignalCancellation:
     def _structure_changed(df: pd.DataFrame, direction: str) -> bool:
         """Проверка изменения структуры рынка"""
         
-        if len(df) < 20:
+        if df is None or df.empty or len(df) < 20:
             return False
         
-        ta = TechnicalAnalysis(df)
-        ta.calculate_all_indicators()
-        
-        last = ta.df.iloc[-1]
-        
-        if direction == 'LONG':
-            # Для лонга: цена упала ниже EMA200
-            if last['close'] < last['ema_200']:
-                return True
+        try:
+            ta = TechnicalAnalysis(df)
+            ta.calculate_all_indicators()
             
-            # Медвежий кросс EMA50/100
-            prev = ta.df.iloc[-2]
-            if prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
-                return True
-        
-        else:  # SHORT
-            # Для шорта: цена поднялась выше EMA200
-            if last['close'] > last['ema_200']:
-                return True
+            if len(ta.df) < 2:
+                return False
             
-            # Бычий кросс EMA50/100
-            prev = ta.df.iloc[-2]
-            if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
-                return True
+            last = ta.df.iloc[-1]
+            
+            if direction == 'LONG':
+                # Для лонга: цена упала ниже EMA200
+                if last['close'] < last['ema_200']:
+                    return True
+                
+                # Медвежий кросс EMA50/100
+                prev = ta.df.iloc[-2]
+                if prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
+                    return True
+            
+            else:  # SHORT
+                # Для шорта: цена поднялась выше EMA200
+                if last['close'] > last['ema_200']:
+                    return True
+                
+                # Бычий кросс EMA50/100
+                prev = ta.df.iloc[-2]
+                if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
+                    return True
+        
+        except (IndexError, KeyError, AttributeError) as e:
+            return False
         
         return False
     
     @staticmethod
     def _counter_impulse(df: pd.DataFrame, direction: str) -> bool:
-        """Проверка сильного импульса против сигнала"""
+        """Проверка сильного импульса против сигнала (тело ≥ 1.3× среднего за 20 свечей)"""
         
-        if len(df) < 5:
+        if df is None or df.empty or len(df) < 20:
             return False
         
-        # Последние 3 свечи
-        recent = df.tail(3)
-        
-        if direction == 'LONG':
-            # Три красные свечи подряд с большим телом
-            bearish_candles = 0
-            for i in range(len(recent)):
-                candle = recent.iloc[i]
-                if candle['close'] < candle['open']:
-                    body_size = (candle['open'] - candle['close']) / candle['open']
-                    if body_size > 0.02:  # Тело > 2%
-                        bearish_candles += 1
+        try:
+            recent_20 = df.tail(20)
+            avg_body = (recent_20['close'] - recent_20['open']).abs().mean()
             
-            return bearish_candles >= 3
-        
-        else:  # SHORT
-            # Три зелёные свечи подряд с большим телом
-            bullish_candles = 0
-            for i in range(len(recent)):
-                candle = recent.iloc[i]
-                if candle['close'] > candle['open']:
-                    body_size = (candle['close'] - candle['open']) / candle['open']
-                    if body_size > 0.02:
-                        bullish_candles += 1
+            if avg_body == 0:
+                return False
             
-            return bullish_candles >= 3
+            # Проверяем последнюю свечу
+            last = df.iloc[-1]
+            body = abs(last['close'] - last['open'])
+            
+            # Проверяем направление свечи
+            is_bullish = last['close'] > last['open']
+            is_bearish = last['close'] < last['open']
+            
+            # Для LONG: проверяем медвежий импульс
+            if direction == 'LONG' and is_bearish:
+                if body >= avg_body * 1.3:
+                    return True
+            
+            # Для SHORT: проверяем бычий импульс
+            if direction == 'SHORT' and is_bullish:
+                if body >= avg_body * 1.3:
+                    return True
+        
+        except (IndexError, KeyError, AttributeError) as e:
+            return False
+        
+        return False
 

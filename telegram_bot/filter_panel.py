@@ -20,7 +20,12 @@ class FilterSettings:
         'min_futures_volume': 3_000_000,
         'min_volume_60m_ratio': 1.2,  # %
         'max_spread': 0.18,  # %
+        'max_avg_spread_15m': 0.22,  # %
         'min_liquidity': 300_000,
+        'funding_rate_min': -0.06,  # %
+        'funding_rate_max': 0.06,  # %
+        'max_oi_change_15m': 18.0,  # %
+        'min_contract_age_days': 20,
         'atr_min': 0.3,  # %
         'atr_max': 3.5,  # %
         'max_atr_deviation': 35,  # %
@@ -52,6 +57,8 @@ class FilterSettings:
         'pullback_min': 0.3,  # ATR
         'pullback_max': 0.6,  # ATR
         'min_trend_candles': 3,
+        'trend_neutral_threshold': 25,  # Порог нейтральности тренда (score)
+        'trend_strong_threshold': 40,  # Порог сильного тренда H1 (score)
         
         # === КАЧЕСТВО СИГНАЛА ===
         'impulse_body_ratio': 60,  # %
@@ -61,6 +68,9 @@ class FilterSettings:
         'max_bid_ask_imbalance': 35,  # %
         'max_stddev_ratio': 1.25,
         'max_saw_candles': 3,
+        'signal_volume_multiplier': 1.15,  # Объём импульсной свечи ≥ 1.15× среднего
+        'volume_contraction_ratio': 0.8,  # Откат на пониженном объёме < 80% среднего
+        'pattern_check_enabled': True,  # Включить проверку паттерна
         
         # === УРОВНИ ===
         'min_level_touches': 2,
@@ -88,9 +98,9 @@ class FilterSettings:
     _settings = None
     
     @classmethod
-    def get_all(cls) -> Dict:
-        """Получить все настройки"""
-        if cls._settings is None:
+    def get_all(cls, force_reload: bool = False) -> Dict:
+        """Получить все настройки (гарантированно актуальные из БД)"""
+        if cls._settings is None or force_reload:
             cls._settings = cls.DEFAULTS.copy()
             cls._load_from_db()
         return cls._settings
@@ -104,11 +114,24 @@ class FilterSettings:
     @classmethod
     def set(cls, key: str, value):
         """Установить значение настройки"""
+        from utils.logger import log_info
+        
+        # Загружаем актуальные настройки
         if cls._settings is None:
             cls._settings = cls.DEFAULTS.copy()
+            cls._load_from_db()
+        
+        old_value = cls._settings.get(key)
         cls._settings[key] = value
+        
+        # Сохраняем в БД
         cls._save_to_db()
+        
+        # Сбрасываем кэш и применяем (применение перезагрузит из БД)
+        cls._settings = None
         cls._apply_to_filters()
+        
+        log_info(f"[FilterSettings] 🔄 Updated {key}: {old_value} → {value} (saved to DB and applied)")
     
     @classmethod
     def reset_all(cls):
@@ -121,8 +144,8 @@ class FilterSettings:
     def _load_from_db(cls):
         """Загрузить настройки из БД"""
         try:
-            from database.models import get_db, BotConfig
-            db = get_db()
+            from database.models import SessionLocal, BotConfig
+            db = SessionLocal()
             try:
                 config = db.query(BotConfig).filter(
                     BotConfig.key == 'filter_settings'
@@ -139,8 +162,8 @@ class FilterSettings:
     def _save_to_db(cls):
         """Сохранить настройки в БД"""
         try:
-            from database.models import get_db, BotConfig
-            db = get_db()
+            from database.models import SessionLocal, BotConfig
+            db = SessionLocal()
             try:
                 config = db.query(BotConfig).filter(
                     BotConfig.key == 'filter_settings'
@@ -167,23 +190,26 @@ class FilterSettings:
             from analysis.signal_generator import SignalGenerator
             from analysis.conservative_filters import ConservativeFilters
             
-            # Убеждаемся, что настройки загружены
-            if cls._settings is None:
-                cls._settings = cls.DEFAULTS.copy()
-            
-            s = cls._settings
+            # Убеждаемся, что настройки загружены ИЗ БД (актуальные)
+            cls._settings = None  # Сбрасываем кэш
+            s = cls.get_all()  # Загружаем актуальные из БД
             
             # Market Filters
             MarketFilters.TOP_COINS_LIMIT = s['top_coins_limit']
             MarketFilters.MIN_FUTURES_VOLUME_USDT = s['min_futures_volume']
             MarketFilters.MIN_VOLUME_60M_RATIO = s['min_volume_60m_ratio'] / 100
             MarketFilters.MAX_SPREAD_PERCENT = s['max_spread']
+            MarketFilters.MAX_AVG_SPREAD_15M_PERCENT = s['max_avg_spread_15m']
             MarketFilters.MIN_LIQUIDITY_USDT = s['min_liquidity']
             MarketFilters.ATR_MIN_PERCENT = s['atr_min']
             MarketFilters.ATR_MAX_PERCENT = s['atr_max']
             MarketFilters.MAX_ATR_DEVIATION = s['max_atr_deviation'] / 100
             MarketFilters.MAX_CANDLE_BODY_PERCENT = s['max_candle_body_gap']
             MarketFilters.MAX_HIGH_LOW_GAP_PERCENT = s['max_high_low_gap']
+            MarketFilters.FUNDING_RATE_MIN = s['funding_rate_min'] / 100
+            MarketFilters.FUNDING_RATE_MAX = s['funding_rate_max'] / 100
+            MarketFilters.MAX_OI_CHANGE_15M_PERCENT = s['max_oi_change_15m']
+            MarketFilters.MIN_CONTRACT_AGE_DAYS = s['min_contract_age_days']
             
             # BTC/ETH Filters
             MarketFilters.BTC_MAX_MOVE_5M = s['btc_max_move_5m']
@@ -211,6 +237,11 @@ class FilterSettings:
             MarketFilters.PULLBACK_MAX_ATR = s['pullback_max']
             MarketFilters.MIN_TREND_CANDLES = s['min_trend_candles']
             
+            # Multi-Timeframe Analysis
+            from analysis.multi_timeframe import MultiTimeframeAnalysis
+            MultiTimeframeAnalysis.TREND_NEUTRAL_THRESHOLD = s['trend_neutral_threshold']
+            MultiTimeframeAnalysis.TREND_STRONG_THRESHOLD = s['trend_strong_threshold']
+            
             # Signal Quality
             MarketFilters.IMPULSE_BODY_RATIO = s['impulse_body_ratio'] / 100
             MarketFilters.IMPULSE_AVG_MULTIPLIER = s['impulse_avg_multiplier']
@@ -219,6 +250,7 @@ class FilterSettings:
             MarketFilters.MAX_BID_ASK_IMBALANCE = s['max_bid_ask_imbalance'] / 100
             MarketFilters.MAX_STDDEV_RATIO = s['max_stddev_ratio']
             MarketFilters.MAX_SAW_CANDLES = s['max_saw_candles']
+            MarketFilters.IMPULSE_VOLUME_MULTIPLIER = s['signal_volume_multiplier']
             
             # Levels
             MarketFilters.MIN_LEVEL_TOUCHES = s['min_level_touches']
@@ -248,6 +280,7 @@ class FilterSettings:
             SignalGenerator.PULLBACK_MAX_ATR = s['pullback_max']
             SignalGenerator.MIN_TREND_CANDLES = s['min_trend_candles']
             SignalGenerator.IMPULSE_BODY_RATIO = s['impulse_body_ratio'] / 100
+            SignalGenerator.SIGNAL_VOLUME_MULTIPLIER = s['signal_volume_multiplier']
             SignalGenerator.TP1_MIN_ATR = s['tp1_min']
             SignalGenerator.TP1_MAX_ATR = s['tp1_max']
             SignalGenerator.TP2_MIN_ATR = s['tp2_min']
@@ -260,16 +293,21 @@ class FilterSettings:
             ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR = s['min_opposite_distance']
             ConservativeFilters.BREAKOUT_BODY_RATIO = s['breakout_body_ratio'] / 100
             ConservativeFilters.MAX_BID_ASK_IMBALANCE = s['max_bid_ask_imbalance'] / 100
+            ConservativeFilters.VOLUME_CONTRACTION_RATIO = s['volume_contraction_ratio']
+            ConservativeFilters.PATTERN_CHECK_ENABLED = s['pattern_check_enabled']
             
             # Risk Manager
             from database.risk_manager import RiskManager
             RiskManager.COOLDOWN_HOURS = s['cooldown_hours']
-            RiskManager.MAX_SIGNALS_PER_COIN = s['max_active_signals']
+            RiskManager.MAX_ACTIVE_SIGNALS = s['max_active_signals']
             
-            print("[FilterSettings] Applied to all filter classes")
+            # Логируем применение настроек
+            from utils.logger import log_info
+            log_info("[FilterSettings] ✅ All filter settings applied to filter classes")
             
         except Exception as e:
-            print(f"[FilterSettings] Error applying to filters: {e}")
+            from utils.logger import log_error
+            log_error(f"[FilterSettings] ❌ Error applying to filters: {e}", "apply_filters")
 
 
 class FilterPanel:
@@ -285,7 +323,12 @@ class FilterPanel:
                 ('min_futures_volume', 'Мин. объём', 'M$', [1, 2, 3, 5, 10]),
                 ('min_volume_60m_ratio', 'Объём 60m', '%', [0.8, 1.0, 1.2, 1.5, 2.0]),
                 ('max_spread', 'Макс. спред', '%', [0.10, 0.15, 0.18, 0.25, 0.35]),
+                ('max_avg_spread_15m', 'Средний спред 15m', '%', [0.15, 0.18, 0.22, 0.25, 0.30]),
                 ('min_liquidity', 'Мин. ликвидность', 'K$', [100, 200, 300, 500, 1000]),
+                ('funding_rate_min', 'Funding Rate мин', '%', [-0.10, -0.08, -0.06, -0.04, -0.02]),
+                ('funding_rate_max', 'Funding Rate макс', '%', [0.02, 0.04, 0.06, 0.08, 0.10]),
+                ('max_oi_change_15m', 'Изменение OI 15m', '%', [10, 15, 18, 20, 25]),
+                ('min_contract_age_days', 'Возраст контракта', 'дн', [10, 15, 20, 25, 30]),
             ]
         },
         'atr': {
@@ -307,6 +350,7 @@ class FilterPanel:
                 ('btc_max_move_15m', 'BTC 15m', '%', [2.0, 2.5, 2.8, 3.0, 4.0]),
                 ('btc_max_reversals', 'BTC развороты', '', [1, 2, 3, 4, 5]),
                 ('btc_pause_minutes', 'Пауза BTC', 'мин', [10, 15, 20, 30, 60]),
+                ('btc_strong_move_1h', 'BTC сильное движение 1h', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
                 ('eth_max_move_15m', 'ETH 15m', '%', [1.5, 2.0, 2.5, 3.0, 4.0]),
             ]
         },
@@ -334,10 +378,12 @@ class FilterPanel:
             'name': '📊 Тренд и структура',
             'emoji': '📊',
             'filters': [
-                ('max_ema50_distance', 'EMA50 дистанция', 'ATR', [1.5, 2.0, 2.5, 3.0, 4.0]),
-                ('pullback_min', 'Pullback мин', 'ATR', [0.2, 0.3, 0.4, 0.5, 0.6]),
-                ('pullback_max', 'Pullback макс', 'ATR', [0.4, 0.5, 0.6, 0.8, 1.0]),
-                ('min_trend_candles', 'Мин. тренд свечей', '/4', [2, 3, 4]),
+                ('max_ema50_distance', 'EMA50 дистанция', ' ATR', [1.5, 2.0, 2.5, 3.0, 4.0, 5.0]),
+                ('pullback_min', 'Pullback мин', ' ATR', [0.1, 0.2, 0.3, 0.4, 0.5]),
+                ('pullback_max', 'Pullback макс', ' ATR', [0.5, 0.6, 0.8, 1.0, 1.5]),
+                ('min_trend_candles', 'Мин. тренд свечей', '/4', [1, 2, 3, 4]),
+                ('trend_neutral_threshold', 'Порог нейтральности', ' score', [15, 20, 25, 30, 35]),
+                ('trend_strong_threshold', 'Порог сильного тренда', ' score', [30, 35, 40, 45, 50]),
             ]
         },
         'quality': {
@@ -349,6 +395,10 @@ class FilterPanel:
                 ('max_dirty_candles', 'Грязные свечи', '/10', [2, 3, 4, 5]),
                 ('ema50_slope_min', 'Наклон EMA50', '/10', [5, 6, 7, 8, 9]),
                 ('max_bid_ask_imbalance', 'Bid/Ask дисбаланс', '%', [25, 30, 35, 40, 50]),
+                ('max_stddev_ratio', 'StdDev отношение', 'x', [1.0, 1.15, 1.25, 1.35, 1.5]),
+                ('max_saw_candles', 'Пила-свечи', '/12', [2, 3, 4, 5]),
+                ('volume_contraction_ratio', 'Volume contraction', 'x', [0.6, 0.7, 0.8, 0.9, 1.0]),
+                ('pattern_check_enabled', 'Проверка паттерна', '', [True, False]),
             ]
         },
         'levels': {
@@ -369,8 +419,11 @@ class FilterPanel:
                 ('sl_tolerance_max', 'SL допуск макс', 'ATR', [0.4, 0.5, 0.6, 0.7, 0.8]),
                 ('max_sl_distance', 'Макс. SL', 'ATR', [1.2, 1.4, 1.6, 1.8, 2.0]),
                 ('min_sl_liquidity', 'Ликвидность SL', 'K$', [50, 70, 90, 120, 150]),
+                ('max_ema50_deviation', 'Отклонение EMA50', 'ATR', [1.5, 2.0, 2.2, 2.5, 3.0, 4.0]),
                 ('tp1_min', 'TP1 мин', 'ATR', [0.8, 1.0, 1.2, 1.5, 2.0]),
+                ('tp1_max', 'TP1 макс', 'ATR', [1.0, 1.2, 1.3, 1.5, 1.8]),
                 ('tp2_min', 'TP2 мин', 'ATR', [1.5, 1.8, 2.0, 2.5, 3.0]),
+                ('tp2_max', 'TP2 макс', 'ATR', [2.0, 2.4, 2.6, 3.0, 3.5]),
             ]
         },
         'risk': {
@@ -444,6 +497,15 @@ class FilterPanel:
                 display_value = f"{current_value / 1_000:.0f}K$"
             elif filter_key == 'min_sl_liquidity':
                 display_value = f"{current_value / 1_000:.0f}K$"
+            elif filter_key in ['funding_rate_min', 'funding_rate_max']:
+                display_value = f"{current_value}%"
+            elif filter_key == 'min_contract_age_days':
+                display_value = f"{current_value}дн"
+            elif filter_key == 'pattern_check_enabled':
+                display_value = "ВКЛ" if current_value else "ВЫКЛ"
+            elif filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'min_opposite_distance']:
+                # Для ATR значений показываем с одним знаком после запятой
+                display_value = f"{current_value:.1f}{unit}"
             elif unit:
                 display_value = f"{current_value}{unit}"
             else:
@@ -483,7 +545,26 @@ class FilterPanel:
         
         # Заголовок
         keyboard.append([InlineKeyboardButton(f"✏️ {filter_name}", callback_data="noop")])
-        keyboard.append([InlineKeyboardButton(f"Текущее: {current_value}{unit}", callback_data="noop")])
+        
+        # Форматирование текущего значения для отображения
+        if filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'min_opposite_distance']:
+            current_display = f"{current_value:.1f}{unit}"
+        elif filter_key == 'min_futures_volume':
+            current_display = f"{current_value / 1_000_000:.1f}M$"
+        elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
+            current_display = f"{current_value / 1_000:.0f}K$"
+        elif filter_key in ['funding_rate_min', 'funding_rate_max']:
+            current_display = f"{current_value}%"
+        elif filter_key == 'min_contract_age_days':
+            current_display = f"{current_value}дн"
+        elif filter_key == 'pattern_check_enabled':
+            current_display = "ВКЛ" if current_value else "ВЫКЛ"
+        elif unit:
+            current_display = f"{current_value}{unit}"
+        else:
+            current_display = str(current_value)
+        
+        keyboard.append([InlineKeyboardButton(f"Текущее: {current_display}", callback_data="noop")])
         keyboard.append([InlineKeyboardButton("─────────────────────", callback_data="noop")])
         
         # Кнопки со значениями по 3 в ряд
@@ -500,17 +581,40 @@ class FilterPanel:
                     elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
                         display_val = f"{val}K$"
                         actual_val = val * 1_000
+                    elif filter_key in ['funding_rate_min', 'funding_rate_max']:
+                        display_val = f"{val}%"
+                        actual_val = val
+                    elif filter_key == 'min_contract_age_days':
+                        display_val = f"{val}дн"
+                        actual_val = val
+                    elif filter_key == 'pattern_check_enabled':
+                        display_val = "ВКЛ" if val else "ВЫКЛ"
+                        actual_val = val
                     else:
                         display_val = f"{val}{unit}"
                         actual_val = val
                     
-                    # Отметка текущего значения
-                    if actual_val == current_value or val == current_value:
+                    # Отметка текущего значения (с учетом погрешности для float)
+                    is_match = False
+                    if isinstance(current_value, float) and isinstance(actual_val, float):
+                        is_match = abs(actual_val - current_value) < 0.001
+                    elif isinstance(current_value, float) and isinstance(val, (int, float)):
+                        is_match = abs(val - current_value) < 0.001
+                    else:
+                        is_match = (actual_val == current_value or val == current_value)
+                    
+                    if is_match:
                         display_val = f"✓ {display_val}"
+                    
+                    # Для boolean значений передаем как строку
+                    if isinstance(val, bool):
+                        callback_val = "True" if val else "False"
+                    else:
+                        callback_val = str(val)
                     
                     row.append(InlineKeyboardButton(
                         display_val,
-                        callback_data=f"fp_set_{category}_{filter_key}_{val}"
+                        callback_data=f"fp_set_{category}_{filter_key}_{callback_val}"
                     ))
             keyboard.append(row)
         
@@ -522,17 +626,33 @@ class FilterPanel:
     @staticmethod
     def get_settings_text() -> str:
         """Текст с текущими настройками"""
-        s = FilterSettings.get_all()
+        # ВСЕГДА загружаем актуальные настройки из БД (не используем кэш)
+        # Сбрасываем кэш и загружаем заново, чтобы гарантировать актуальность
+        FilterSettings._settings = FilterSettings.DEFAULTS.copy()
+        FilterSettings._load_from_db()
+        s = FilterSettings._settings.copy()  # Копия для форматирования
+        
+        # Вычисляем значения для форматирования
+        pattern_status = 'ВКЛ' if s.get('pattern_check_enabled', True) else 'ВЫКЛ'
+        
+        # Форматируем значения для отображения (как в категориях)
+        min_futures_volume_display = f"{s['min_futures_volume'] / 1_000_000:.1f}M$"
+        min_liquidity_display = f"{s['min_liquidity'] / 1_000:.0f}K$"
+        min_sl_liquidity_display = f"{s['min_sl_liquidity'] / 1_000:.0f}K$"
         
         text = """
 📋 *ТЕКУЩИЕ НАСТРОЙКИ ФИЛЬТРОВ*
 
 📊 *Фильтры рынка:*
 ├ Топ монет: {top_coins_limit}
-├ Мин. объём: {min_futures_volume:,.0f}$
+├ Мин. объём: {min_futures_volume_display}
 ├ Объём 60m: {min_volume_60m_ratio}%
 ├ Макс. спред: {max_spread}%
-└ Мин. ликвидность: {min_liquidity:,.0f}$
+├ Средний спред 15m: ≤{max_avg_spread_15m}%
+├ Мин. ликвидность: {min_liquidity_display}
+├ Funding Rate: {funding_rate_min}% до {funding_rate_max}%
+├ Изменение OI 15m: ≤{max_oi_change_15m}%
+└ Возраст контракта: ≥{min_contract_age_days} дней
 
 📈 *ATR волатильность:*
 ├ ATR: {atr_min}% - {atr_max}%
@@ -543,6 +663,7 @@ class FilterPanel:
 ├ BTC 5m/15m: ≤{btc_max_move_5m}% / {btc_max_move_15m}%
 ├ BTC развороты: ≤{btc_max_reversals}
 ├ Пауза BTC: {btc_pause_minutes} мин
+├ BTC сильное движение 1h: {btc_strong_move_1h}%
 └ ETH 15m: ≤{eth_max_move_15m}%
 
 ⏰ *Временные:*
@@ -557,21 +678,88 @@ class FilterPanel:
 └ Мин. RR: {min_rr_ratio}:1
 
 📊 *Тренд и структура:*
-├ EMA50 дистанция: ≤{max_ema50_distance} ATR
-├ Pullback: {pullback_min}-{pullback_max} ATR
-└ Мин. тренд: {min_trend_candles}/4 свечей
+├ EMA50 дистанция: ≤{max_ema50_distance:.1f} ATR
+├ Pullback: {pullback_min:.1f}-{pullback_max:.1f} ATR
+├ Мин. тренд: {min_trend_candles}/4 свечей
+├ Порог нейтральности: {trend_neutral_threshold} score
+├ Порог сильного тренда: {trend_strong_threshold} score
+└ Структура: HH+HL (LONG) / LL+LH (SHORT) желательна (мягкая проверка)
+
+📍 *Уровни:*
+├ Мин. касания: {min_level_touches}
+├ HTF объём: ≥{htf_volume_multiplier}× среднего
+├ До противоположного уровня: ≥{min_opposite_distance:.1f} ATR
+└ Пробой тело: ≥{breakout_body_ratio}%
+
+✨ *Качество сигнала:*
+├ Импульс тело: {impulse_body_ratio}%
+├ Импульс множитель: {impulse_avg_multiplier}x
+├ Объём импульсной свечи: ≥{signal_volume_multiplier}× среднего
+├ Грязные свечи: ≤{max_dirty_candles}/10
+├ Наклон EMA50: ≥{ema50_slope_min}/10
+├ Bid/Ask дисбаланс: ≤{max_bid_ask_imbalance}%
+├ StdDev отношение: ≤{max_stddev_ratio}x
+├ Пила-свечи: ≤{max_saw_candles}/12
+├ Volume contraction: <{volume_contraction_ratio}x среднего
+└ Паттерн: {pattern_status}
 
 🎯 *SL/TP:*
-├ SL допуск: {sl_tolerance_min}-{sl_tolerance_max} ATR
-├ Макс. SL: ≤{max_sl_distance} ATR
-├ TP1: {tp1_min}-{tp1_max} ATR
-└ TP2: {tp2_min}-{tp2_max} ATR
+├ SL допуск: {sl_tolerance_min:.1f}-{sl_tolerance_max:.1f} ATR
+├ Макс. SL: ≤{max_sl_distance:.1f} ATR
+├ Ликвидность SL: {min_sl_liquidity_display}
+├ Отклонение EMA50: ≤{max_ema50_deviation:.1f} ATR
+├ TP1: {tp1_min:.1f}-{tp1_max:.1f} ATR
+└ TP2: {tp2_min:.1f}-{tp2_max:.1f} ATR
 
 ⚠️ *Риск-менеджмент:*
 ├ Макс. сигналов: {max_active_signals}
 ├ Cooldown: {cooldown_hours} ч
 └ Мин. свечей: {min_data_candles}
-""".format(**s)
+
+📋 *ЛОГИЧЕСКИЕ ФИЛЬТРЫ (не настраиваются):*
+
+🔄 *Тренд и структура:*
+├ Запрет входа против тренда H1
+├ Для лонга: HH или HL желательны (мягкая проверка)
+└ Для шорта: LL или LH желательны (мягкая проверка)
+
+🎯 *Сигнал • Вход • SL • TP:*
+├ Сигнал формируется только при полной валидности всех фильтров
+├ Тип сигнала: лонг/шорт строго по направлению тренда и структуры
+├ Сигнал подаётся только после закрытия сигнальной свечи
+├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей
+├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта)
+├ Pullback перед сигналом в диапазоне 0.3–0.6 ATR
+├ EMA50 направлена в сторону сигнала; отклонение ≤ 2 ATR
+├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего)
+├ Пробой уровня: тело ≥ 55% свечи относительно уровня
+├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей
+├ SL размещается за последним HL/LH с допуском 0.4–0.6 ATR
+├ SL ≤ 1.6 ATR от точки входа
+├ При ATR% ≥ 3.0% допускается расширение SL до 0.7–0.8 ATR
+├ Структура должна оставаться интактной (HH+HL для лонга / LL+LH для шорта)
+├ Минимальный RR сохраняется ≥ 1.8 : 1
+├ SL обязателен за последним HL/LH
+├ Ликвидность в зоне SL ≥ 90 000 USDT (в пределах ±0.5%)
+├ Отклонение цены от EMA50 ≤ 2.2 ATR
+├ Правило действует только при полном соблюдении всех остальных условий
+├ TP рассчитывается по структуре: TP1 = 1.0–1.3 ATR, TP2 = 2.0–2.6 ATR
+├ Минимальный RR сигнала ≥ 1.8 : 1
+├ Сигнал не подаётся при нарушении структуры в момент формирования
+├ Сигнал не подаётся если SL попадает в низкую ликвидность (≤ 90k внутри ±0.5%)
+├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
+└ Повторный сигнал возможен только после обновления структуры и нового паттерна
+
+📊 *ВСЕГО ФИЛЬТРОВ: 72*
+├ Настраиваемых: 48
+└ Логических: 24
+""".format(
+            **s, 
+            pattern_status=pattern_status,
+            min_futures_volume_display=min_futures_volume_display,
+            min_liquidity_display=min_liquidity_display,
+            min_sl_liquidity_display=min_sl_liquidity_display
+        )
         
         return text.strip()
 
@@ -599,15 +787,22 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
     
     # Главное меню
     if data == "fp_main":
-        await query.edit_message_text(
-            "⚙️ *Панель управления фильтрами*\n\nВыберите категорию для настройки:",
-            reply_markup=FilterPanel.get_main_menu(),
-            parse_mode=ParseMode.MARKDOWN
-        )
+        try:
+            await query.edit_message_text(
+                "⚙️ *Панель управления фильтрами*\n\nВыберите категорию для настройки:",
+                reply_markup=FilterPanel.get_main_menu(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            from utils.logger import log_error
+            log_error(f"Error in fp_main callback: {str(e)}", "filter_panel")
+            await query.answer("Ошибка при возврате в главное меню", show_alert=True)
         return
     
     # Показать все настройки
     if data == "fp_show_all":
+        # Принудительно обновляем настройки из БД перед отображением
+        FilterSettings._settings = None  # Сбрасываем кэш
         text = FilterPanel.get_settings_text()
         keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="fp_main")]]
         await query.edit_message_text(
@@ -697,7 +892,12 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
             
             # Преобразование значения
             try:
-                if '.' in value_str:
+                # Обработка boolean значений
+                if value_str.lower() == 'true':
+                    value = True
+                elif value_str.lower() == 'false':
+                    value = False
+                elif '.' in value_str:
                     value = float(value_str)
                 else:
                     value = int(value_str)
@@ -710,6 +910,9 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
                 value = value * 1_000_000
             elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
                 value = value * 1_000
+            elif filter_key in ['funding_rate_min', 'funding_rate_max']:
+                # Значение уже в процентах, оставляем как есть
+                pass
             
             # Сохраняем
             FilterSettings.set(filter_key, value)
@@ -722,8 +925,9 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
             else:
                 display_value = str(value)
             
+            # Обновляем меню категории, чтобы показать новое значение
             await query.edit_message_text(
-                f"✅ *Значение обновлено!*\n\n`{filter_key}` = `{display_value}`",
+                f"✅ *Значение обновлено!*\n\n`{filter_key}` = `{display_value}`\n\nНастройка применена автоматически и будет использоваться для новых сигналов.",
                 reply_markup=FilterPanel.get_category_menu(category),
                 parse_mode=ParseMode.MARKDOWN
             )

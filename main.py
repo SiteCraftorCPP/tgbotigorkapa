@@ -4,12 +4,13 @@ from exchange.xt_client import XTClient
 from analysis.signal_generator import SignalGenerator
 from analysis.market_filters import MarketFilters
 from telegram_bot.bot import TelegramBot
-from database.models import init_db, get_db, Signal, SessionLocal
+from database.models import init_db, Signal, SessionLocal
 from database.config_manager import ConfigManager
 from utils.logger import logger, log_signal, log_error, log_info, log_warning, log_filter_summary
 from utils.cache import btc_cache, api_rate_limiter
 from utils.top_coins import TopCoinsService, update_trading_pairs_auto
 from utils.db_cleanup import DatabaseCleanup, run_scheduled_cleanup
+from telegram_bot.filter_panel import FilterSettings
 import config
 import time
 
@@ -40,13 +41,16 @@ class CryptoSignalBot:
         log_info("Database initialized")
         
         # Запуск Telegram бота (polling)
+        log_info("Initializing Telegram bot...")
         await self.telegram_bot.app.initialize()
         await self.telegram_bot.app.start()
+        log_info("Telegram bot app started")
         
         # Запускаем polling в отдельной задаче
+        # В python-telegram-bot v21+ нужно использовать правильный способ
         self.polling_task = asyncio.create_task(self._run_telegram_polling())
-        await asyncio.sleep(3)
-        log_info("OK: Telegram bot started (polling)")
+        await asyncio.sleep(2)  # Даем время на запуск polling
+        log_info("✅ Telegram bot polling task started")
         
         # Автоматическое обновление торговых пар на топ-200
         log_info("Fetching top 200 coins by market cap...")
@@ -59,6 +63,11 @@ class CryptoSignalBot:
         # Загрузка настроек из БД
         pairs = ConfigManager.get_trading_pairs()
         timeframes = ConfigManager.get_timeframes()
+        
+        # Инициализация и применение настроек фильтров из БД
+        FilterSettings.get_all(force_reload=True)  # Принудительно загружает из БД
+        FilterSettings._apply_to_filters()  # Применяет настройки к классам фильтров
+        log_info("✅ Filter settings loaded from DB and applied to all filter classes")
         
         log_info(f"Loaded {len(pairs)} trading pairs, {len(timeframes)} timeframes")
         log_info("Initialization complete")
@@ -97,7 +106,8 @@ class CryptoSignalBot:
                 signal = await generator.generate_signal()
                 
                 if signal:
-                    log_info(f"[SIGNAL GENERATED] {pair} {timeframe} {signal.get('direction')} - Entry: {signal.get('entry_price')}, Stop: {signal.get('stop_loss')}")
+                    log_info(f"[✅ SIGNAL GENERATED] {pair} {timeframe} {signal.get('direction')} - Entry: {signal.get('entry_price')}, Stop: {signal.get('stop_loss')}")
+                    log_info(f"[✅ SIGNAL WILL BE SENT] {pair} {timeframe} - Signal passed all filters, will be saved and sent to Telegram channel")
                     return {
                         'pair': pair,
                         'timeframe': timeframe,
@@ -177,10 +187,24 @@ class CryptoSignalBot:
                     log_error(f"Exception in {pair} {tf}: {str(result)}", "analyze_market_parallel")
                     continue
                     
+                # ДЕБАГ: логируем все результаты
+                if result:
+                    status = result.get('status', 'NO_STATUS')
+                    pair = result.get('pair', 'NO_PAIR')
+                    tf = result.get('timeframe', 'NO_TF')
+                    if status == 'signal':
+                        log_info(f"[DEBUG] ✅ Found signal in batch: {pair} {tf}")
+                    else:
+                        log_info(f"[DEBUG] Result: {pair} {tf} status={status}")
+                    
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
-                    await self._save_and_send_signal(signal)
-                    signals_found += 1
+                    log_info(f"[DEBUG] Processing signal {signal.get('ticker')} {signal.get('timeframe')} - calling _save_and_send_signal")
+                    try:
+                        await self._save_and_send_signal(signal)
+                        signals_found += 1
+                    except Exception as save_error:
+                        log_error(f"Error in _save_and_send_signal for {signal.get('ticker')}: {str(save_error)}", "save_signal")
                 elif result and result.get('status') == 'error':
                     errors_count += 1
                     pair = result.get('pair', 'unknown')
@@ -203,8 +227,11 @@ class CryptoSignalBot:
     
     async def _save_and_send_signal(self, signal: dict):
         """Сохранение сигнала в БД и отправка в Telegram"""
-        db = SessionLocal()
+        ticker = signal.get('ticker', 'UNKNOWN')
+        log_info(f"[DEBUG] _save_and_send_signal called for {ticker}")
         try:
+            db = SessionLocal()
+            log_info(f"[DEBUG] DB session created for {ticker}")
             # Валидация уровней сигнала перед сохранением
             entry = signal.get('entry_price', 0)
             stop = signal.get('stop_loss', 0)
@@ -212,26 +239,31 @@ class CryptoSignalBot:
             tp2 = signal.get('take_profit_2', 0)
             tp3 = signal.get('take_profit_3', 0)
             
+            log_info(f"[DEBUG] Validating {ticker}: entry={entry}, stop={stop}, tp1={tp1}, tp2={tp2}, tp3={tp3}")
+            
             # Проверка, что все уровни разные и валидные
             if entry <= 0 or stop <= 0 or tp1 <= 0 or tp2 <= 0 or tp3 <= 0:
-                log_info(f"Invalid signal levels for {signal.get('ticker')}: entry={entry}, stop={stop}, tp1={tp1}")
+                log_info(f"[BLOCKED] Invalid signal levels for {ticker}: entry={entry}, stop={stop}, tp1={tp1}")
                 return
             
-            # Проверка, что уровни разные
-            if entry == stop or entry == tp1 or stop == tp1 or tp1 == tp2 or tp2 == tp3:
-                log_info(f"Duplicate signal levels for {signal.get('ticker')}: all levels must be different")
+            # Проверка, что основные уровни разные (tp2==tp3 допускается)
+            if entry == stop or entry == tp1 or stop == tp1 or tp1 == tp2:
+                log_info(f"Duplicate signal levels for {signal.get('ticker')}: critical levels must be different")
                 return
             
             # Проверка дубликатов
+            log_info(f"[DEBUG] Checking duplicates for {ticker}...")
             recent_signal = db.query(Signal).filter(
                 Signal.ticker == signal['ticker'],
                 Signal.status.in_(['WAITING', 'IN_POSITION'])
             ).first()
             
             if recent_signal:
-                log_info(f"Skipping {signal['ticker']}: active signal exists (ID: {recent_signal.signal_id}, Status: {recent_signal.status})")
+                log_info(f"[BLOCKED] Skipping {ticker}: active signal exists (ID: {recent_signal.signal_id}, Status: {recent_signal.status})")
                 return
             
+            log_info(f"[DEBUG] No duplicates for {ticker}, proceeding to save...")
+                            
             # Сохранение в БД
             log_info(f"[SAVING] Saving signal {signal['ticker']} {signal['direction']} to database...")
             try:
@@ -309,10 +341,12 @@ class CryptoSignalBot:
                     # Получение текущей цены
                     ticker = await self.xt_client.get_ticker(signal.ticker)
                     
-                    if not ticker:
+                    if not ticker or 'last' not in ticker:
                         continue
                     
-                    current_price = ticker['last']
+                    current_price = ticker.get('last', 0)
+                    if current_price <= 0:
+                        continue
                     
                     # WAITING: проверка активации входа или отмены
                     if signal.status == 'WAITING':
@@ -335,6 +369,10 @@ class CryptoSignalBot:
         # 1. Проверка условий отмены
         df = await self.xt_client.get_ohlcv(signal.ticker, signal.timeframe, limit=100)
         
+        if df is None or df.empty:
+            log_error(f"Cannot get OHLCV data for {signal.ticker} {signal.timeframe} - skipping cancellation check", "check_waiting_signal")
+            return
+        
         should_cancel, cancel_reason = SignalCancellation.should_cancel(
             {
                 'entry_price': signal.entry_price,
@@ -348,11 +386,15 @@ class CryptoSignalBot:
         )
         
         if should_cancel:
-            signal.status = 'CANCELLED'
-            signal.cancellation_reason = cancel_reason
-            signal.closed_at = datetime.utcnow()
-            db.commit()
-            log_info(f"Signal {signal.signal_id} cancelled: {cancel_reason}")
+            try:
+                signal.status = 'CANCELLED'
+                signal.cancellation_reason = cancel_reason
+                signal.closed_at = datetime.utcnow()
+                db.commit()
+                log_info(f"Signal {signal.signal_id} cancelled: {cancel_reason}")
+            except Exception as e:
+                log_error(f"Error cancelling signal {signal.signal_id}: {str(e)}", "check_waiting_signal")
+                db.rollback()
             return
         
         # 2. Проверка активации входа
@@ -366,10 +408,14 @@ class CryptoSignalBot:
                 entry_activated = True
         
         if entry_activated:
-            signal.status = 'IN_POSITION'
-            signal.activated_at = datetime.utcnow()
-            db.commit()
-            log_info(f"Entry activated {signal.signal_id} @ {current_price}")
+            try:
+                signal.status = 'IN_POSITION'
+                signal.activated_at = datetime.utcnow()
+                db.commit()
+                log_info(f"Entry activated {signal.signal_id} @ {current_price}")
+            except Exception as e:
+                log_error(f"Error activating entry for signal {signal.signal_id}: {str(e)}", "check_waiting_signal")
+                db.rollback()
     
     async def _check_position_levels(self, signal: Signal, current_price: float, db):
         """Проверка достижения TP и SL для позиции"""
@@ -403,8 +449,12 @@ class CryptoSignalBot:
             # Проверка TP1 (+ безубыток)
             if not signal.tp1_hit and current_price >= signal.take_profit_1:
                 await self._hit_tp(signal, 1, current_price, db)
-                signal.stop_loss_breakeven = signal.entry_price
-                db.commit()
+                try:
+                    signal.stop_loss_breakeven = signal.entry_price
+                    db.commit()
+                except Exception as e:
+                    log_error(f"Error setting breakeven for signal {signal.signal_id}: {str(e)}", "check_position_levels")
+                    db.rollback()
                 return
         
         else:  # SHORT - зеркально
@@ -414,10 +464,14 @@ class CryptoSignalBot:
             
             if not signal.tp4_hit and current_price <= signal.take_profit_4:
                 await self._hit_tp(signal, 4, current_price, db)
-                signal.status = 'CLOSED_FULL_TP'
-                signal.result = 'WIN'
-                signal.closed_at = datetime.utcnow()
-                db.commit()
+                try:
+                    signal.status = 'CLOSED_FULL_TP'
+                    signal.result = 'WIN'
+                    signal.closed_at = datetime.utcnow()
+                    db.commit()
+                except Exception as e:
+                    log_error(f"Error closing TP4 for signal {signal.signal_id}: {str(e)}", "check_position_levels")
+                    db.rollback()
                 return
             
             if not signal.tp3_hit and current_price <= signal.take_profit_3:
@@ -430,53 +484,75 @@ class CryptoSignalBot:
             
             if not signal.tp1_hit and current_price <= signal.take_profit_1:
                 await self._hit_tp(signal, 1, current_price, db)
-                signal.stop_loss_breakeven = signal.entry_price
-                db.commit()
+                try:
+                    signal.stop_loss_breakeven = signal.entry_price
+                    db.commit()
+                except Exception as e:
+                    log_error(f"Error setting breakeven for signal {signal.signal_id}: {str(e)}", "check_position_levels")
+                    db.rollback()
                 return
     
     async def _hit_tp(self, signal: Signal, tp_number: int, price: float, db):
         """Обработка достижения TP"""
-        setattr(signal, f'tp{tp_number}_hit', True)
-        signal.status = f'TP{tp_number}_HIT'
-        db.commit()
-        
-        tps_hit = sum([signal.tp1_hit, signal.tp2_hit, signal.tp3_hit, signal.tp4_hit])
-        remaining = 100 - (tps_hit * 25)
-        
-        log_info(f"TP{tp_number} reached {signal.signal_id} @ {price}, remaining: {remaining}%")
+        try:
+            setattr(signal, f'tp{tp_number}_hit', True)
+            signal.status = f'TP{tp_number}_HIT'
+            db.commit()
+            
+            tps_hit = sum([signal.tp1_hit, signal.tp2_hit, signal.tp3_hit, signal.tp4_hit])
+            remaining = 100 - (tps_hit * 25)
+            
+            log_info(f"TP{tp_number} reached {signal.signal_id} @ {price}, remaining: {remaining}%")
+        except Exception as e:
+            log_error(f"Error hitting TP{tp_number} for signal {signal.signal_id}: {str(e)}", "hit_tp")
+            db.rollback()
     
     async def _close_on_stop(self, signal: Signal, price: float, db):
         """Закрытие по стоп-лоссу"""
-        signal.status = 'STOPPED_OUT'
-        signal.result = 'LOSS' if not signal.tp1_hit else 'BREAKEVEN'
-        signal.closed_at = datetime.utcnow()
-        
-        entry = signal.entry_price
-        if signal.direction == 'LONG':
-            pnl = ((price - entry) / entry) * 100
-        else:
-            pnl = ((entry - price) / entry) * 100
-        
-        signal.pnl_percent = pnl
-        db.commit()
-        
-        log_info(f"Stop-loss {signal.signal_id} @ {price}, PnL: {pnl:.2f}%")
+        try:
+            signal.status = 'STOPPED_OUT'
+            signal.result = 'LOSS' if not signal.tp1_hit else 'BREAKEVEN'
+            signal.closed_at = datetime.utcnow()
+            
+            entry = signal.entry_price
+            if signal.direction == 'LONG':
+                pnl = ((price - entry) / entry) * 100
+            else:
+                pnl = ((entry - price) / entry) * 100
+            
+            signal.pnl_percent = pnl
+            db.commit()
+            
+            log_info(f"Stop-loss {signal.signal_id} @ {price}, PnL: {pnl:.2f}%")
+        except Exception as e:
+            log_error(f"Error closing stop for signal {signal.signal_id}: {str(e)}", "close_on_stop")
+            db.rollback()
     
     async def _run_telegram_polling(self):
         """Запуск Telegram polling в фоне"""
         try:
+            log_info("Starting Telegram polling...")
+            # В python-telegram-bot v21+ правильный способ - использовать start_polling в async контексте
+            # Application уже инициализирован и запущен, просто запускаем polling
             await self.telegram_bot.app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=None,
-                bootstrap_retries=-1
+                bootstrap_retries=-1,
+                timeout=20,
+                read_timeout=20
             )
-            log_info("OK: Polling started successfully")
+            log_info("✅ Telegram polling started successfully")
+            
+            # Держим задачу активной пока бот работает
+            # Application автоматически обрабатывает обновления через обработчики
+            while self.is_running:
+                await asyncio.sleep(1)
         except asyncio.CancelledError:
             log_info("Polling cancelled (normal shutdown)")
         except Exception as e:
-            log_error(str(e), "Telegram polling")
+            log_error(f"Error in Telegram polling: {str(e)}", "Telegram polling")
             import traceback
-            traceback.print_exc()
+            log_error(f"Traceback: {traceback.format_exc()}", "Telegram polling")
     
     async def run(self):
         """Основной цикл работы"""
@@ -488,14 +564,20 @@ class CryptoSignalBot:
         
         # Счётчик циклов
         cycle_count = 0
+        last_analysis_time = 0  # Время последнего запуска анализа
         
         while self.is_running:
             try:
                 # Мониторинг активных сигналов КАЖДЫЕ 5 СЕКУНД
                 await self.monitor_active_signals()
                 
-                # Анализ рынка каждые 10 МИНУТ (120 циклов * 5 сек = 600 сек)
-                if cycle_count % self.ANALYSIS_INTERVAL_CYCLES == 0:
+                # Анализ рынка каждые 2 МИНУТЫ (24 цикла * 5 сек = 120 сек)
+                # Проверяем по времени, а не по cycle_count, чтобы не пропускать запуски
+                current_time = time.time()
+                time_since_last_analysis = current_time - last_analysis_time
+                
+                if time_since_last_analysis >= (self.ANALYSIS_INTERVAL_CYCLES * 5):
+                    last_analysis_time = current_time
                     await self.analyze_market_parallel()
                 
                 # Автоматическое обновление топ монет КАЖДЫЙ ЧАС (720 циклов * 5 сек = 3600 сек)
@@ -527,9 +609,14 @@ class CryptoSignalBot:
         log_info("Bot stopped")
         
         # Остановка Telegram бота
-        await self.telegram_bot.app.updater.stop()
-        await self.telegram_bot.app.stop()
-        await self.telegram_bot.app.shutdown()
+        if self.polling_task:
+            self.polling_task.cancel()
+        try:
+            # Останавливаем Application (это остановит polling)
+            await self.telegram_bot.app.stop()
+            await self.telegram_bot.app.shutdown()
+        except Exception as e:
+            log_error(f"Error stopping Telegram bot: {str(e)}", "shutdown")
         
         self.xt_client.close()
 

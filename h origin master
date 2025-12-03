@@ -1,0 +1,23 @@
+warning: in the working copy of 'analysis/conservative_filters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'analysis/market_filters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'analysis/multi_timeframe.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'analysis/signal_cancellation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'analysis/signal_generator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'database/risk_manager.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'main.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'telegram_bot/bot.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'telegram_bot/filter_panel.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'telegram_bot/languages.py', LF will be replaced by CRLF the next time Git touches it
+FILTERS_CHECK.md
+UPDATE_COMMANDS.md
+analysis/conservative_filters.py
+analysis/market_filters.py
+analysis/multi_timeframe.py
+analysis/signal_cancellation.py
+analysis/signal_generator.py
+database/risk_manager.py
+main.py
+start_bot.py
+telegram_bot/bot.py
+telegram_bot/filter_panel.py
+telegram_bot/languages.py
