@@ -602,8 +602,11 @@ class CryptoSignalBot:
                 log_info("Shutdown signal received")
                 break
             except Exception as e:
-                log_error(str(e), "main loop")
-                await asyncio.sleep(60)
+                import traceback
+                error_msg = f"Error in main loop: {str(e)}\n{traceback.format_exc()}"
+                log_error(error_msg, "main loop")
+                log_warning("Bot will continue after 60 seconds...")
+                await asyncio.sleep(60)  # Пауза перед продолжением
         
         log_info("Bot stopped")
         

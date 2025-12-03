@@ -1,0 +1,22 @@
+[Unit]
+Description=Crypto Signal Bot for XT.com
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/tgbotigorkapa
+Environment="PATH=/root/tgbotigorkapa/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/root/tgbotigorkapa/venv/bin/python3 /root/tgbotigorkapa/main.py
+Restart=always
+RestartSec=30
+StandardOutput=append:/root/tgbotigorkapa/logs/bot_service.log
+StandardError=append:/root/tgbotigorkapa/logs/bot_service_error.log
+
+# Ограничения ресурсов
+LimitNOFILE=65536
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
+
