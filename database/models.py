@@ -1,10 +1,11 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from datetime import datetime
 import config
 
-Base = declarative_base()
+# Используем новый синтаксис SQLAlchemy 2.0 (совместим с Python 3.13)
+class Base(DeclarativeBase):
+    pass
 
 class Signal(Base):
     __tablename__ = 'signals'

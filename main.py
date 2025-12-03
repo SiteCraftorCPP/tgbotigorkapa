@@ -626,6 +626,16 @@ class CryptoSignalBot:
 
 async def main():
     """Точка входа"""
+    import sys
+    
+    # Проверка версии Python
+    if sys.version_info < (3, 8):
+        print("❌ Требуется Python 3.8 или выше")
+        sys.exit(1)
+    
+    if sys.version_info >= (3, 14):
+        print("⚠️ Python 3.14+ не протестирован. Рекомендуется Python 3.8-3.13")
+    
     bot = CryptoSignalBot()
     await bot.run()
 
