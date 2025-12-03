@@ -189,25 +189,66 @@ class TopCoinsService:
 async def update_trading_pairs_auto(limit: int = 100) -> bool:
     """
     Автоматически обновить торговые пары на топ монеты
+    Фильтрует пары, которые не торгуются на XT.com
     
     Returns:
         True если обновление прошло успешно
     """
     from database.config_manager import ConfigManager
+    from exchange.xt_client import XTClient
     
     try:
         # Получаем топ монеты
-        top_pairs = await TopCoinsService.fetch_top_coins(limit=limit)
+        top_pairs = await TopCoinsService.fetch_top_coins(limit=limit + 50)  # Берем больше для фильтрации
         
         if not top_pairs:
             logger.error("Failed to fetch top coins - empty list")
             return False
         
+        # Получаем список доступных пар на XT.com
+        logger.info(f"🔍 Проверка {len(top_pairs)} пар на доступность на XT.com...")
+        client = XTClient()
+        
+        # Загружаем markets для получения списка доступных пар
+        try:
+            await client._run_in_executor(client.exchange.load_markets)
+            available_markets = set(client.exchange.markets.keys())
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить markets: {e}, используем проверку через get_ohlcv")
+            available_markets = None
+        
+        valid_pairs = []
+        
+        # Фильтруем пары
+        for pair in top_pairs:
+            try:
+                if available_markets is not None:
+                    # Быстрая проверка через markets
+                    if pair in available_markets:
+                        valid_pairs.append(pair)
+                        if len(valid_pairs) >= limit:
+                            break
+                else:
+                    # Медленная проверка через get_ohlcv (fallback)
+                    df = await client.get_ohlcv(pair, '1m', limit=1)
+                    if df is not None and not df.empty:
+                        valid_pairs.append(pair)
+                        if len(valid_pairs) >= limit:
+                            break
+            except Exception:
+                # Пара не торгуется на XT.com - пропускаем
+                continue
+        
+        if not valid_pairs:
+            logger.error("No valid trading pairs found on XT.com")
+            return False
+        
         # Сохраняем в БД
-        success = ConfigManager.set_trading_pairs(top_pairs)
+        success = ConfigManager.set_trading_pairs(valid_pairs)
         
         if success:
-            logger.info(f"✅ Auto-updated trading pairs: {len(top_pairs)} pairs")
+            filtered_count = len(top_pairs) - len(valid_pairs)
+            logger.info(f"✅ Auto-updated trading pairs: {len(valid_pairs)} pairs (проверено {len(top_pairs)}, отфильтровано {filtered_count})")
             return True
         else:
             logger.error("Failed to save trading pairs to database")
