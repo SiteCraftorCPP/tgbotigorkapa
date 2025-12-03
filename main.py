@@ -640,7 +640,26 @@ async def main():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nBot stopped by user")
+    import traceback
+    restart_count = 0
+    max_restarts = 10
+    
+    while restart_count < max_restarts:
+        try:
+            asyncio.run(main())
+            # Если main() завершился без исключения, выходим
+            break
+        except KeyboardInterrupt:
+            log_info("\n\n⚠️  Bot stopped by user")
+            break
+        except Exception as e:
+            restart_count += 1
+            error_msg = f"\n❌ Fatal error (restart {restart_count}/{max_restarts}): {e}\n{traceback.format_exc()}"
+            log_error(error_msg, "fatal")
+            
+            if restart_count >= max_restarts:
+                log_error(f"Max restarts ({max_restarts}) reached. Bot stopped.", "fatal")
+                break
+            
+            log_warning(f"Restarting bot in 30 seconds... (attempt {restart_count}/{max_restarts})")
+            time.sleep(30)  # Пауза перед перезапуском
