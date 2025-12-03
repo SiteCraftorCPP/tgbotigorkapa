@@ -533,13 +533,11 @@ class CryptoSignalBot:
         try:
             log_info("Starting Telegram polling...")
             # В python-telegram-bot v21+ правильный способ - использовать start_polling в async контексте
-            # Application уже инициализирован и запущен, просто запускаем polling
+            # Убираем read_timeout - не поддерживается в некоторых версиях
             await self.telegram_bot.app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=None,
-                bootstrap_retries=-1,
-                timeout=20,
-                read_timeout=20
+                bootstrap_retries=-1
             )
             log_info("✅ Telegram polling started successfully")
             
