@@ -121,6 +121,9 @@ class SignalCancellation:
                 return False
             
             # Проверяем последнюю свечу
+            if len(df) == 0:
+                return False, None
+            
             last = df.iloc[-1]
             body = abs(last['close'] - last['open'])
             

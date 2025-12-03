@@ -290,6 +290,10 @@ class ConservativeFilters:
             result['passed'] = True  # Недостаточно данных - пропускаем
             return result
         
+        if len(df) == 0:
+            result['passed'] = True  # Недостаточно данных - пропускаем
+            return result
+        
         current_price = df.iloc[-1]['close']
         level_tolerance = level * 0.005  # 0.5% допуск
         

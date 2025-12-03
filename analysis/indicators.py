@@ -127,6 +127,9 @@ class TechnicalAnalysis:
     
     def get_momentum_signal(self) -> dict:
         """Анализ моментума"""
+        if len(self.df) == 0:
+            return {'direction': 'NEUTRAL', 'score': 0}
+        
         last = self.df.iloc[-1]
         
         score = 0
@@ -165,6 +168,9 @@ class TechnicalAnalysis:
     
     def get_volume_signal(self) -> dict:
         """Анализ объёмов"""
+        if len(self.df) == 0:
+            return {'direction': 'NEUTRAL', 'score': 0}
+        
         last = self.df.iloc[-1]
         
         score = 0
@@ -184,6 +190,9 @@ class TechnicalAnalysis:
     
     def get_volatility_score(self) -> dict:
         """Оценка волатильности"""
+        if len(self.df) == 0:
+            return {'score': 0}
+        
         last = self.df.iloc[-1]
         
         score = 0
@@ -209,6 +218,9 @@ class TechnicalAnalysis:
     
     def calculate_support_resistance(self) -> dict:
         """Расчёт уровней поддержки и сопротивления"""
+        if len(self.df) == 0:
+            return {'support': None, 'resistance': None}
+        
         last = self.df.iloc[-1]
         
         # Простой метод: локальные min/max за последние N свечей
