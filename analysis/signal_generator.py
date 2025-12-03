@@ -86,17 +86,11 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, "CandleNotClosed", "Signal candle must be closed before generating signal")
             return None
         
-        # ФИЛЬТР РИСК-МЕНЕДЖМЕНТА
-        can_open, reason = RiskManager.can_open_new_signal(self.symbol)
-        if not can_open:
-            log_filter_block(self.symbol, self.timeframe, "RiskManager", reason)
-            return None
-        
         # Расчёт индикаторов
         self.ta.calculate_all_indicators()
         
-        if self.ta.df.empty or len(self.ta.df) < 150:
-            log_filter_block(self.symbol, self.timeframe, "DataCheck", f"Not enough data: {len(self.ta.df)} candles < 150")
+        if self.ta.df.empty:
+            log_filter_block(self.symbol, self.timeframe, "DataCheck", "No data available")
             return None
         
         # === МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ ===

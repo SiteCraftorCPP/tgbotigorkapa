@@ -52,22 +52,24 @@ class CryptoSignalBot:
         await asyncio.sleep(2)  # Даем время на запуск polling
         log_info("✅ Telegram bot polling task started")
         
-        # Автоматическое обновление торговых пар на топ-200
-        log_info("Fetching top 200 coins by market cap...")
-        success = await update_trading_pairs_auto(limit=200)
+        # Загрузка настроек из БД и применение к фильтрам
+        FilterSettings.get_all(force_reload=True)  # Принудительно загружает из БД
+        FilterSettings._apply_to_filters()  # Применяет настройки к классам фильтров
+        log_info("✅ Filter settings loaded from DB and applied to all filter classes")
+        
+        # Автоматическое обновление торговых пар на топ-N (из настроек)
+        from analysis.market_filters import MarketFilters
+        top_coins_limit = MarketFilters.TOP_COINS_LIMIT
+        log_info(f"Fetching top {top_coins_limit} coins by market cap...")
+        success = await update_trading_pairs_auto(limit=top_coins_limit)
         if success:
-            log_info("✅ Trading pairs auto-updated to top 200 coins")
+            log_info(f"✅ Trading pairs auto-updated to top {top_coins_limit} coins")
         else:
             log_warning("⚠️ Could not auto-update pairs, using existing config")
         
         # Загрузка настроек из БД
         pairs = ConfigManager.get_trading_pairs()
         timeframes = ConfigManager.get_timeframes()
-        
-        # Инициализация и применение настроек фильтров из БД
-        FilterSettings.get_all(force_reload=True)  # Принудительно загружает из БД
-        FilterSettings._apply_to_filters()  # Применяет настройки к классам фильтров
-        log_info("✅ Filter settings loaded from DB and applied to all filter classes")
         
         log_info(f"Loaded {len(pairs)} trading pairs, {len(timeframes)} timeframes")
         log_info("Initialization complete")
@@ -532,8 +534,7 @@ class CryptoSignalBot:
         """Запуск Telegram polling в фоне"""
         try:
             log_info("Starting Telegram polling...")
-            # В python-telegram-bot v21+ правильный способ - использовать start_polling в async контексте
-            # Убираем read_timeout - не поддерживается в некоторых версиях
+            # В python-telegram-bot v21+ правильный способ - использовать updater.start_polling
             await self.telegram_bot.app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=None,
@@ -547,6 +548,7 @@ class CryptoSignalBot:
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
             log_info("Polling cancelled (normal shutdown)")
+            await self.telegram_bot.app.updater.stop()
         except Exception as e:
             log_error(f"Error in Telegram polling: {str(e)}", "Telegram polling")
             import traceback
@@ -581,10 +583,13 @@ class CryptoSignalBot:
                 # Автоматическое обновление топ монет КАЖДЫЙ ЧАС (720 циклов * 5 сек = 3600 сек)
                 if cycle_count % self.TOP_COINS_UPDATE_CYCLES == 0 and cycle_count > 0:
                     log_info("🔄 Auto-updating top coins list...")
-                    success = await update_trading_pairs_auto(limit=200)
+                    # Используем значение из настроек фильтров
+                    from analysis.market_filters import MarketFilters
+                    top_coins_limit = MarketFilters.TOP_COINS_LIMIT
+                    success = await update_trading_pairs_auto(limit=top_coins_limit)
                     if success:
                         pairs = ConfigManager.get_trading_pairs()
-                        log_info(f"✅ Top coins updated: {len(pairs)} pairs")
+                        log_info(f"✅ Top coins updated: {len(pairs)} pairs (limit: {top_coins_limit})")
                     log_filter_summary()
                 
                 # Очистка старых сигналов РАЗ В СУТКИ (17280 циклов * 5 сек = 86400 сек)

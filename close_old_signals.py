@@ -55,13 +55,7 @@ if __name__ == "__main__":
     # Показываем текущую статистику
     from database.risk_manager import RiskManager
     active_count = RiskManager.get_active_signals_count()
-    max_allowed = RiskManager.MAX_ACTIVE_SIGNALS
     
     print(f"\n📊 Текущая статистика:")
-    print(f"   Активных сигналов: {active_count}/{max_allowed}")
-    
-    if active_count < max_allowed:
-        print(f"   ✅ Лимит не превышен, новые сигналы могут создаваться")
-    else:
-        print(f"   ⚠️  Лимит превышен! Увеличьте max_active_signals или закройте больше старых сигналов")
+    print(f"   Активных сигналов: {active_count}")
 

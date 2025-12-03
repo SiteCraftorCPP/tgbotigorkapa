@@ -88,11 +88,6 @@ class FilterSettings:
         'tp1_max': 1.3,  # ATR
         'tp2_min': 2.0,  # ATR
         'tp2_max': 2.6,  # ATR
-        
-        # === РИСК-МЕНЕДЖМЕНТ ===
-        'max_active_signals': 1,
-        'cooldown_hours': 1,
-        'min_data_candles': 150,
     }
     
     _settings = None
@@ -152,6 +147,10 @@ class FilterSettings:
                 ).first()
                 if config and config.value:
                     saved = json.loads(config.value)
+                    # Удаляем удаленные настройки риск-менеджмента (если они есть в БД)
+                    saved.pop('max_active_signals', None)
+                    saved.pop('cooldown_hours', None)
+                    saved.pop('min_data_candles', None)
                     cls._settings.update(saved)
             finally:
                 db.close()
@@ -296,11 +295,6 @@ class FilterSettings:
             ConservativeFilters.VOLUME_CONTRACTION_RATIO = s['volume_contraction_ratio']
             ConservativeFilters.PATTERN_CHECK_ENABLED = s['pattern_check_enabled']
             
-            # Risk Manager
-            from database.risk_manager import RiskManager
-            RiskManager.COOLDOWN_HOURS = s['cooldown_hours']
-            RiskManager.MAX_ACTIVE_SIGNALS = s['max_active_signals']
-            
             # Логируем применение настроек
             from utils.logger import log_info
             log_info("[FilterSettings] ✅ All filter settings applied to filter classes")
@@ -424,15 +418,6 @@ class FilterPanel:
                 ('tp1_max', 'TP1 макс', 'ATR', [1.0, 1.2, 1.3, 1.5, 1.8]),
                 ('tp2_min', 'TP2 мин', 'ATR', [1.5, 1.8, 2.0, 2.5, 3.0]),
                 ('tp2_max', 'TP2 макс', 'ATR', [2.0, 2.4, 2.6, 3.0, 3.5]),
-            ]
-        },
-        'risk': {
-            'name': '⚠️ Риск-менеджмент',
-            'emoji': '⚠️',
-            'filters': [
-                ('max_active_signals', 'Макс. сигналов', '', [1, 2, 3, 5]),
-                ('cooldown_hours', 'Cooldown', 'ч', [0.5, 1, 2, 4, 8]),
-                ('min_data_candles', 'Мин. свечей', '', [50, 100, 150, 200, 300]),
             ]
         },
     }
@@ -632,6 +617,11 @@ class FilterPanel:
         FilterSettings._load_from_db()
         s = FilterSettings._settings.copy()  # Копия для форматирования
         
+        # Удаляем удаленные настройки риск-менеджмента из словаря (если они есть)
+        s.pop('max_active_signals', None)
+        s.pop('cooldown_hours', None)
+        s.pop('min_data_candles', None)
+        
         # Вычисляем значения для форматирования
         pattern_status = 'ВКЛ' if s.get('pattern_check_enabled', True) else 'ВЫКЛ'
         
@@ -711,11 +701,6 @@ class FilterPanel:
 ├ TP1: {tp1_min:.1f}-{tp1_max:.1f} ATR
 └ TP2: {tp2_min:.1f}-{tp2_max:.1f} ATR
 
-⚠️ *Риск-менеджмент:*
-├ Макс. сигналов: {max_active_signals}
-├ Cooldown: {cooldown_hours} ч
-└ Мин. свечей: {min_data_candles}
-
 📋 *ЛОГИЧЕСКИЕ ФИЛЬТРЫ (не настраиваются):*
 
 🔄 *Тренд и структура:*
@@ -750,8 +735,8 @@ class FilterPanel:
 ├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
 └ Повторный сигнал возможен только после обновления структуры и нового паттерна
 
-📊 *ВСЕГО ФИЛЬТРОВ: 72*
-├ Настраиваемых: 48
+📊 *ВСЕГО ФИЛЬТРОВ: 70*
+├ Настраиваемых: 46
 └ Логических: 24
 """.format(
             **s, 

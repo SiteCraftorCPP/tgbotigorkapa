@@ -38,6 +38,15 @@ class TopCoinsService:
     }
     
     @classmethod
+    def _get_top_coins_limit(cls) -> int:
+        """Получить лимит топ монет из настроек фильтров"""
+        try:
+            from analysis.market_filters import MarketFilters
+            return MarketFilters.TOP_COINS_LIMIT
+        except:
+            return 200  # Дефолтное значение если не удалось загрузить
+    
+    @classmethod
     async def fetch_top_coins(cls, limit: int = 100, force_refresh: bool = False) -> List[str]:
         """
         Получить список топ монет по капитализации
@@ -170,7 +179,8 @@ class TopCoinsService:
                 'symbol': symbol.upper(),
                 'pair': pair,
                 'rank': rank,
-                'in_top_200': rank <= 200
+                # Используем значение из настроек фильтров (динамически)
+                'in_top_limit': rank <= cls._get_top_coins_limit()
             }
         
         return None
