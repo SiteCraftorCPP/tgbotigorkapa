@@ -134,6 +134,11 @@ class MultiTimeframeAnalysis:
         last_two_highs = [h['price'] for h in highs[-2:]]
         last_two_lows = [l['price'] for l in lows[-2:]]
         
+        # Проверка, что есть минимум 2 элемента
+        if len(last_two_highs) < 2 or len(last_two_lows) < 2:
+            result['reason'] = "Not enough swing points for structure analysis"
+            return result
+        
         if direction == 'LONG':
             # HH + HL обязательны
             higher_high = last_two_highs[-1] > last_two_highs[-2]

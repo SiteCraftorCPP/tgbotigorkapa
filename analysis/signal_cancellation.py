@@ -78,6 +78,9 @@ class SignalCancellation:
             
             last = ta.df.iloc[-1]
             
+            if len(ta.df) < 2:
+                return False
+            
             if direction == 'LONG':
                 # Для лонга: цена упала ниже EMA200
                 if last['close'] < last['ema_200']:

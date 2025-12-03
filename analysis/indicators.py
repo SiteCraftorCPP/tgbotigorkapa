@@ -88,6 +88,9 @@ class TechnicalAnalysis:
     
     def get_trend_signal(self) -> dict:
         """Определение тренда"""
+        if len(self.df) < 2:
+            return {'direction': 'NEUTRAL', 'score': 0}
+        
         last = self.df.iloc[-1]
         prev = self.df.iloc[-2]
         

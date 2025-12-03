@@ -144,6 +144,10 @@ class SignalGenerator:
             return None
         
         # Текущая цена и ATR
+        if len(self.ta.df) == 0:
+            log_filter_block(self.symbol, self.timeframe, "DataCheck", "DataFrame is empty")
+            return None
+        
         last_row = self.ta.df.iloc[-1]
         current_price = last_row['close']
         atr = last_row['atr']
@@ -291,6 +295,9 @@ class SignalGenerator:
     
     def _check_ema50_distance(self) -> bool:
         """Расстояние от EMA50 (настраивается через max_ema50_distance)"""
+        if len(self.ta.df) == 0:
+            return True  # Недостаточно данных - пропускаем
+        
         last = self.ta.df.iloc[-1]
         
         if 'ema_50' not in last or 'atr' not in last:
@@ -307,6 +314,9 @@ class SignalGenerator:
     def _check_pullback(self, direction: str) -> bool:
         """Pullback в диапазоне ATR (настраивается через pullback_min/max)"""
         if len(self.df) < 20:
+            return True  # Недостаточно данных - пропускаем
+        
+        if len(self.ta.df) == 0:
             return True  # Недостаточно данных - пропускаем
         
         last = self.ta.df.iloc[-1]
@@ -440,6 +450,9 @@ class SignalGenerator:
     
     def _check_ema50_deviation(self, current_price: float, atr: float) -> bool:
         """Отклонение цены от EMA50 ≤ 2.2 ATR"""
+        if len(self.ta.df) == 0:
+            return True  # Недостаточно данных - пропускаем
+        
         last = self.ta.df.iloc[-1]
         
         if 'ema_50' not in last or atr == 0:

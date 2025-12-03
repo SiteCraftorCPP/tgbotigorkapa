@@ -758,6 +758,12 @@ class MarketFilters:
         
         # RSI
         rsi_series = RSIIndicator(close=df['close'], window=14).rsi()
+        
+        # Проверка на пустую серию
+        if rsi_series.empty or len(rsi_series) == 0:
+            result['passed'] = True  # Недостаточно данных - пропускаем
+            return result
+        
         rsi = rsi_series.iloc[-1]
         
         # Проверка на NaN
@@ -781,6 +787,12 @@ class MarketFilters:
             window=14
         )
         adx_series = adx_indicator.adx()
+        
+        # Проверка на пустую серию
+        if adx_series.empty or len(adx_series) == 0:
+            result['passed'] = True  # Недостаточно данных - пропускаем
+            return result
+        
         adx = adx_series.iloc[-1]
         
         # Проверка на NaN
