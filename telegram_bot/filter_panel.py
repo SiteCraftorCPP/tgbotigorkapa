@@ -54,9 +54,9 @@ class FilterSettings:
         
         # === ТРЕНД И СТРУКТУРА ===
         'max_ema50_distance': 2.0,  # ATR
-        'pullback_min': 0.3,  # ATR
-        'pullback_max': 0.6,  # ATR
-        'min_trend_candles': 3,
+        'pullback_min': 0.2,  # ATR
+        'pullback_max': 0.8,  # ATR
+        'min_trend_candles': 0.333,  # 1 из 3 свечей (0.333) или N из 4
         'trend_neutral_threshold': 25,  # Порог нейтральности тренда (score)
         'trend_strong_threshold': 40,  # Порог сильного тренда H1 (score)
         
@@ -375,7 +375,7 @@ class FilterPanel:
                 ('max_ema50_distance', 'EMA50 дистанция', ' ATR', [1.5, 2.0, 2.5, 3.0, 4.0, 5.0]),
                 ('pullback_min', 'Pullback мин', ' ATR', [0.1, 0.2, 0.3, 0.4, 0.5]),
                 ('pullback_max', 'Pullback макс', ' ATR', [0.5, 0.6, 0.8, 1.0, 1.5]),
-                ('min_trend_candles', 'Мин. тренд свечей', '/4', [1, 2, 3, 4]),
+                ('min_trend_candles', 'Мин. тренд свечей', '/4', [0.333, 1, 2, 3, 4]),
                 ('trend_neutral_threshold', 'Порог нейтральности', ' score', [15, 20, 25, 30, 35]),
                 ('trend_strong_threshold', 'Порог сильного тренда', ' score', [30, 35, 40, 45, 50]),
             ]
@@ -488,6 +488,12 @@ class FilterPanel:
                 display_value = f"{current_value}дн"
             elif filter_key == 'pattern_check_enabled':
                 display_value = "ВКЛ" if current_value else "ВЫКЛ"
+            elif filter_key == 'min_trend_candles':
+                # Специальное форматирование для min_trend_candles
+                if abs(current_value - 0.333) < 0.001:
+                    display_value = "1/3"
+                else:
+                    display_value = f"{int(current_value)}/4"
             elif filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'min_opposite_distance']:
                 # Для ATR значений показываем с одним знаком после запятой
                 display_value = f"{current_value:.1f}{unit}"
@@ -544,6 +550,12 @@ class FilterPanel:
             current_display = f"{current_value}дн"
         elif filter_key == 'pattern_check_enabled':
             current_display = "ВКЛ" if current_value else "ВЫКЛ"
+        elif filter_key == 'min_trend_candles':
+            # Специальное форматирование для min_trend_candles
+            if abs(current_value - 0.333) < 0.001:
+                current_display = "1/3"
+            else:
+                current_display = f"{int(current_value)}/4"
         elif unit:
             current_display = f"{current_value}{unit}"
         else:
@@ -574,6 +586,13 @@ class FilterPanel:
                         actual_val = val
                     elif filter_key == 'pattern_check_enabled':
                         display_val = "ВКЛ" if val else "ВЫКЛ"
+                        actual_val = val
+                    elif filter_key == 'min_trend_candles':
+                        # Специальное форматирование для min_trend_candles
+                        if abs(val - 0.333) < 0.001:
+                            display_val = "1/3"
+                        else:
+                            display_val = f"{int(val)}/4"
                         actual_val = val
                     else:
                         display_val = f"{val}{unit}"
@@ -630,6 +649,13 @@ class FilterPanel:
         min_liquidity_display = f"{s['min_liquidity'] / 1_000:.0f}K$"
         min_sl_liquidity_display = f"{s['min_sl_liquidity'] / 1_000:.0f}K$"
         
+        # Форматирование для min_trend_candles
+        min_trend_candles_value = s.get('min_trend_candles', 3)
+        if abs(min_trend_candles_value - 0.333) < 0.001:
+            min_trend_candles_display = "1/3"
+        else:
+            min_trend_candles_display = f"{int(min_trend_candles_value)}/4"
+        
         text = """
 📋 *ТЕКУЩИЕ НАСТРОЙКИ ФИЛЬТРОВ*
 
@@ -670,7 +696,7 @@ class FilterPanel:
 📊 *Тренд и структура:*
 ├ EMA50 дистанция: ≤{max_ema50_distance:.1f} ATR
 ├ Pullback: {pullback_min:.1f}-{pullback_max:.1f} ATR
-├ Мин. тренд: {min_trend_candles}/4 свечей
+├ Мин. тренд: {min_trend_candles_display} свечей
 ├ Порог нейтральности: {trend_neutral_threshold} score
 ├ Порог сильного тренда: {trend_strong_threshold} score
 └ Структура: HH+HL (LONG) / LL+LH (SHORT) желательна (мягкая проверка)
@@ -714,7 +740,7 @@ class FilterPanel:
 ├ Сигнал подаётся только после закрытия сигнальной свечи
 ├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей
 ├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта)
-├ Pullback перед сигналом в диапазоне 0.3–0.6 ATR
+├ Pullback перед сигналом в диапазоне 0.2–0.8 ATR
 ├ EMA50 направлена в сторону сигнала; отклонение ≤ 2 ATR
 ├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего)
 ├ Пробой уровня: тело ≥ 55% свечи относительно уровня
@@ -743,7 +769,8 @@ class FilterPanel:
             pattern_status=pattern_status,
             min_futures_volume_display=min_futures_volume_display,
             min_liquidity_display=min_liquidity_display,
-            min_sl_liquidity_display=min_sl_liquidity_display
+            min_sl_liquidity_display=min_sl_liquidity_display,
+            min_trend_candles_display=min_trend_candles_display
         )
         
         return text.strip()

@@ -96,7 +96,7 @@ class MarketFilters:
     MAX_EMA50_DISTANCE_ATR = 2.0  # Расстояние от EMA50 ≤ 2 ATR
     PULLBACK_MIN_ATR = 0.3  # Pullback минимум 0.3 ATR
     PULLBACK_MAX_ATR = 0.6  # Pullback максимум 0.6 ATR
-    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей в направлении
+    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей в направлении (или 0.333 для 1 из 3)
     
     # ========================================================================
     # КАЧЕСТВО СИГНАЛА
@@ -367,30 +367,32 @@ class MarketFilters:
             # BTC движение за 5 минут
             if len(btc_df) >= 5:
                 recent_5m = btc_df.tail(5)
-                price_5m_ago = recent_5m.iloc[0]['open']
-                current_price = recent_5m.iloc[-1]['close']
-                
-                if price_5m_ago > 0:
-                    btc_move_5m = abs((current_price - price_5m_ago) / price_5m_ago) * 100
+                if not recent_5m.empty and len(recent_5m) >= 1:
+                    price_5m_ago = recent_5m.iloc[0]['open']
+                    current_price = recent_5m.iloc[-1]['close']
                     
-                    if btc_move_5m > MarketFilters.BTC_MAX_MOVE_5M:
-                        MarketFilters._set_btc_pause()
-                        result['reason'] = f"BTC moved {btc_move_5m:.2f}% in 5min > {MarketFilters.BTC_MAX_MOVE_5M}%"
-                        return result
+                    if price_5m_ago > 0:
+                        btc_move_5m = abs((current_price - price_5m_ago) / price_5m_ago) * 100
+                        
+                        if btc_move_5m > MarketFilters.BTC_MAX_MOVE_5M:
+                            MarketFilters._set_btc_pause()
+                            result['reason'] = f"BTC moved {btc_move_5m:.2f}% in 5min > {MarketFilters.BTC_MAX_MOVE_5M}%"
+                            return result
             
             # BTC движение за 15 минут
             if len(btc_df) >= 15:
                 recent_15m = btc_df.tail(15)
-                price_15m_ago = recent_15m.iloc[0]['open']
-                current_price = recent_15m.iloc[-1]['close']
-                
-                if price_15m_ago > 0:
-                    btc_move_15m = abs((current_price - price_15m_ago) / price_15m_ago) * 100
+                if not recent_15m.empty and len(recent_15m) >= 1:
+                    price_15m_ago = recent_15m.iloc[0]['open']
+                    current_price = recent_15m.iloc[-1]['close']
                     
-                    if btc_move_15m > MarketFilters.BTC_MAX_MOVE_15M:
-                        MarketFilters._set_btc_pause()
-                        result['reason'] = f"BTC moved {btc_move_15m:.2f}% in 15min > {MarketFilters.BTC_MAX_MOVE_15M}%"
-                        return result
+                    if price_15m_ago > 0:
+                        btc_move_15m = abs((current_price - price_15m_ago) / price_15m_ago) * 100
+                        
+                        if btc_move_15m > MarketFilters.BTC_MAX_MOVE_15M:
+                            MarketFilters._set_btc_pause()
+                            result['reason'] = f"BTC moved {btc_move_15m:.2f}% in 15min > {MarketFilters.BTC_MAX_MOVE_15M}%"
+                            return result
             
             # BTC разворотов за 30 минут
             if len(btc_df) >= 30:
@@ -404,23 +406,24 @@ class MarketFilters:
             # BTC сильное движение за 1 час
             if len(btc_df) >= 60 and direction:
                 recent_60m = btc_df.tail(60)
-                price_60m_ago = recent_60m.iloc[0]['open']
-                current_price = recent_60m.iloc[-1]['close']
-                
-                if price_60m_ago > 0:
-                    btc_move_1h = ((current_price - price_60m_ago) / price_60m_ago) * 100
+                if not recent_60m.empty and len(recent_60m) >= 1:
+                    price_60m_ago = recent_60m.iloc[0]['open']
+                    current_price = recent_60m.iloc[-1]['close']
                     
-                    if abs(btc_move_1h) >= MarketFilters.BTC_STRONG_MOVE_1H:
-                        btc_direction = 'LONG' if btc_move_1h > 0 else 'SHORT'
+                    if price_60m_ago > 0:
+                        btc_move_1h = ((current_price - price_60m_ago) / price_60m_ago) * 100
                         
-                        if direction != btc_direction:
-                            result['reason'] = f"BTC moved {btc_move_1h:+.2f}% in 1h, only {btc_direction} signals allowed"
-                            return result
+                        if abs(btc_move_1h) >= MarketFilters.BTC_STRONG_MOVE_1H:
+                            btc_direction = 'LONG' if btc_move_1h > 0 else 'SHORT'
+                            
+                            if direction != btc_direction:
+                                result['reason'] = f"BTC moved {btc_move_1h:+.2f}% in 1h, only {btc_direction} signals allowed"
+                                return result
             
             # ETH движение за 15 минут
             try:
                 eth_df = await client.get_ohlcv('ETH/USDT', '1m', limit=15)
-                if eth_df is not None and len(eth_df) >= 15:
+                if eth_df is not None and not eth_df.empty and len(eth_df) >= 15:
                     price_15m_ago = eth_df.iloc[0]['open']
                     current_price = eth_df.iloc[-1]['close']
                     
@@ -611,10 +614,9 @@ class MarketFilters:
     @staticmethod
     def check_high_low_gaps(df: pd.DataFrame) -> Dict:
         """No High/Low gaps > 2.5% in last 20 candles"""
-        result = {'passed': False, 'reason': ''}
+        result = {'passed': True, 'reason': ''}
         
         if df.empty or len(df) < MarketFilters.CANDLE_CHECK_LOOKBACK:
-            result['passed'] = True
             return result
         
         recent = df.tail(MarketFilters.CANDLE_CHECK_LOOKBACK)
@@ -633,16 +635,17 @@ class MarketFilters:
                 gap = (curr_low - prev_high) / prev_high * 100
                 if gap > MarketFilters.MAX_HIGH_LOW_GAP_PERCENT:
                     result['reason'] = f"Gap up {gap:.2f}% > {MarketFilters.MAX_HIGH_LOW_GAP_PERCENT}%"
-            return result
+                    result['passed'] = False
+                    return result
             
             # Gap down
             if curr_high < prev_low:
                 gap = (prev_low - curr_high) / prev_low * 100
                 if gap > MarketFilters.MAX_HIGH_LOW_GAP_PERCENT:
                     result['reason'] = f"Gap down {gap:.2f}% > {MarketFilters.MAX_HIGH_LOW_GAP_PERCENT}%"
-            return result
+                    result['passed'] = False
+                    return result
         
-        result['passed'] = True
         return result
     
     @staticmethod
@@ -780,7 +783,7 @@ class MarketFilters:
             return result
         
         # ADX
-            adx_indicator = ADXIndicator(
+        adx_indicator = ADXIndicator(
             high=df['high'],
             low=df['low'],
             close=df['close'],
@@ -955,9 +958,9 @@ class MarketFilters:
         if saw_count > MarketFilters.MAX_SAW_CANDLES:
             result['reason'] = f"Saw candles {saw_count} > {MarketFilters.MAX_SAW_CANDLES}"
             return result
-            
-            result['passed'] = True
-            return result
+        
+        result['passed'] = True
+        return result
     
     # ========================================================================
     # ПАТТЕРНЫ
