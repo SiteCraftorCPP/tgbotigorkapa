@@ -35,7 +35,7 @@ class SignalGenerator:
     MAX_EMA50_DEVIATION_ATR = 2.2  # Отклонение от EMA50 ≤ 2.2 ATR
     PULLBACK_MIN_ATR = 0.3
     PULLBACK_MAX_ATR = 0.6
-    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей в направлении
+    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей (или 0.333 для 1 из 3)
     
     # Свеча сигнала
     SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
@@ -113,9 +113,15 @@ class SignalGenerator:
             log_filter_block(self.symbol, self.timeframe, "H1_Trend", f"Entry against H1 trend for {direction}")
             return None
         
-        # === МИНИ-ТРЕНД: минимум N из 4 свечей в направлении ===
+        # === МИНИ-ТРЕНД: минимум N из 3 или 4 свечей в направлении ===
         if not self._check_mini_trend(direction):
-            log_filter_block(self.symbol, self.timeframe, "MiniTrend", f"Less than {self.MIN_TREND_CANDLES}/4 candles in {direction} direction")
+            # Форматирование для сообщения
+            min_trend = SignalGenerator.MIN_TREND_CANDLES
+            if abs(min_trend - 0.333) < 0.001:
+                trend_msg = "1/3"
+            else:
+                trend_msg = f"{int(min_trend)}/4"
+            log_filter_block(self.symbol, self.timeframe, "MiniTrend", f"Less than {trend_msg} candles in {direction} direction")
             return None
         
         # === РАССТОЯНИЕ ОТ EMA50 ≤ 2 ATR ===
@@ -274,15 +280,26 @@ class SignalGenerator:
         return True
     
     def _check_mini_trend(self, direction: str) -> bool:
-        """Мини-тренд: минимум N из последних 4 свечей в направлении сигнала"""
+        """Мини-тренд: минимум N из последних 3 или 4 свечей в направлении сигнала"""
         # Если min_trend_candles = 0, фильтр отключен
-        if self.MIN_TREND_CANDLES == 0:
+        min_trend = SignalGenerator.MIN_TREND_CANDLES
+        if min_trend == 0:
             return True
         
-        if len(self.df) < 4:
+        # Определяем количество проверяемых свечей
+        # Если значение ≈ 0.333 (1/3), проверяем 3 свечи
+        # Иначе проверяем 4 свечи
+        if abs(min_trend - 0.333) < 0.001:
+            window_size = 3
+            required_count = 1
+        else:
+            window_size = 4
+            required_count = int(min_trend)
+        
+        if len(self.df) < window_size:
             return True  # Недостаточно данных - пропускаем
         
-        recent = self.df.tail(4)
+        recent = self.df.tail(window_size)
         count = 0
         
         for idx, row in recent.iterrows():
@@ -291,7 +308,7 @@ class SignalGenerator:
             elif direction == 'SHORT' and row['close'] < row['open']:
                 count += 1
         
-        return count >= self.MIN_TREND_CANDLES
+        return count >= required_count
     
     def _check_ema50_distance(self) -> bool:
         """Расстояние от EMA50 (настраивается через max_ema50_distance)"""
