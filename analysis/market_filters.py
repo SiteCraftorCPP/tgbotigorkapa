@@ -127,16 +127,18 @@ class MarketFilters:
     # SL/TP ПАРАМЕТРЫ
     # ========================================================================
     
-    SL_TOLERANCE_MIN_ATR = 0.4  # SL допуск минимум 0.4 ATR
-    SL_TOLERANCE_MAX_ATR = 0.6  # SL допуск максимум 0.6 ATR
-    MAX_SL_DISTANCE_ATR = 1.6  # SL ≤ 1.6 ATR от входа
+    SL_TOLERANCE_MIN_ATR = 0.5  # SL допуск минимум 0.5 ATR
+    SL_TOLERANCE_MAX_ATR = 1.0  # SL допуск максимум 1.0 ATR
+    MAX_SL_DISTANCE_ATR = 2.2  # SL ≤ 2.2 ATR от входа
     HIGH_VOLATILITY_SL_EXTENSION = 0.8  # При ATR% ≥ 3.0% допуск до 0.8 ATR
     MIN_SL_LIQUIDITY_USDT = 90_000  # Ликвидность в зоне SL ≥ 90,000 USDT
-    MAX_EMA50_DEVIATION_ATR = 2.2  # Отклонение от EMA50 ≤ 2.2 ATR
-    TP1_MIN_ATR = 1.0  # TP1 = 1.0-1.3 ATR
-    TP1_MAX_ATR = 1.3
-    TP2_MIN_ATR = 2.0  # TP2 = 2.0-2.6 ATR
-    TP2_MAX_ATR = 2.6
+    MAX_EMA50_DEVIATION_ATR = 2.5  # Отклонение от EMA50 ≤ 2.5 ATR
+    TP1_MIN_ATR = 1.5  # TP1 = 1.5-2.5 ATR
+    TP1_MAX_ATR = 2.5
+    TP2_MIN_ATR = 3.0  # TP2 = 3.0-5.0 ATR
+    TP2_MAX_ATR = 5.0
+    TP3_MIN_ATR = 6.0  # TP3 = 6.0-9.0 ATR
+    TP3_MAX_ATR = 9.0
     CANCEL_IMPULSE_MULTIPLIER = 1.3  # Отмена при обратном импульсе ≥ 1.3× среднего
     
     # ========================================================================

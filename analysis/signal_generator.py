@@ -18,21 +18,23 @@ class SignalGenerator:
     MIN_RR_RATIO = 1.8  # ≥ 1.8:1
     
     # SL параметры
-    SL_TOLERANCE_MIN_ATR = 0.4  # SL допуск минимум 0.4 ATR
-    SL_TOLERANCE_MAX_ATR = 0.6  # SL допуск максимум 0.6 ATR
-    MAX_SL_DISTANCE_ATR = 1.6  # SL ≤ 1.6 ATR от входа
+    SL_TOLERANCE_MIN_ATR = 0.5  # SL допуск минимум 0.5 ATR
+    SL_TOLERANCE_MAX_ATR = 1.0  # SL допуск максимум 1.0 ATR
+    MAX_SL_DISTANCE_ATR = 2.2  # SL ≤ 2.2 ATR от входа
     HIGH_VOLATILITY_THRESHOLD = 3.0  # ATR% ≥ 3.0% для расширения SL
     HIGH_VOLATILITY_SL_EXTENSION = 0.8  # При высокой волатильности до 0.8 ATR
     
     # TP параметры
-    TP1_MIN_ATR = 1.0
-    TP1_MAX_ATR = 1.3
-    TP2_MIN_ATR = 2.0
-    TP2_MAX_ATR = 2.6
+    TP1_MIN_ATR = 1.5
+    TP1_MAX_ATR = 2.5
+    TP2_MIN_ATR = 3.0
+    TP2_MAX_ATR = 5.0
+    TP3_MIN_ATR = 6.0
+    TP3_MAX_ATR = 9.0
     
     # Тренд и структура
     MAX_EMA50_DISTANCE_ATR = 2.0  # Расстояние от EMA50 ≤ 2 ATR
-    MAX_EMA50_DEVIATION_ATR = 2.2  # Отклонение от EMA50 ≤ 2.2 ATR
+    MAX_EMA50_DEVIATION_ATR = 2.5  # Отклонение от EMA50 ≤ 2.5 ATR
     PULLBACK_MIN_ATR = 0.3
     PULLBACK_MAX_ATR = 0.6
     MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей (или 0.333 для 1 из 3)
@@ -218,7 +220,7 @@ class SignalGenerator:
         
         # === ПРОВЕРКА ОТКЛОНЕНИЯ ОТ EMA50 ===
         if not self._check_ema50_deviation(current_price, atr):
-            log_filter_block(self.symbol, self.timeframe, "EMA50_Deviation", "Price deviation from EMA50 > 2.2 ATR")
+            log_filter_block(self.symbol, self.timeframe, "EMA50_Deviation", "Price deviation from EMA50 > 2.5 ATR")
             return None
         
         # ВСЕ ФИЛЬТРЫ ПРОЙДЕНЫ ✅
@@ -243,8 +245,8 @@ class SignalGenerator:
             'stop_loss': signal_params['stop'],
             'take_profit_1': signal_params['tp1'],
             'take_profit_2': signal_params['tp2'],
-            'take_profit_3': signal_params['tp2'],  # TP3 = TP2 для совместимости
-            'take_profit_4': signal_params['tp2'],  # TP4 = TP2 для совместимости
+            'take_profit_3': signal_params['tp3'],  # TP3 согласно новым фильтрам
+            'take_profit_4': signal_params['tp3'],  # TP4 = TP3 для совместимости
             'risk_percent': RiskManager.MAX_RISK_PER_TRADE,
             'leverage': ConfigManager.get_leverage(),
             'created_at': datetime.utcnow(),
@@ -466,7 +468,7 @@ class SignalGenerator:
         return len(self.df) >= 2
     
     def _check_ema50_deviation(self, current_price: float, atr: float) -> bool:
-        """Отклонение цены от EMA50 ≤ 2.2 ATR"""
+        """Отклонение цены от EMA50 ≤ 2.5 ATR"""
         if len(self.ta.df) == 0:
             return True  # Недостаточно данных - пропускаем
         
@@ -540,11 +542,12 @@ class SignalGenerator:
                          levels: dict, atr_percent: float = None) -> Optional[Dict]:
         """
         Расчёт уровней:
-        - SL за последним HL/LH с допуском 0.4-0.6 ATR
-        - SL ≤ 1.6 ATR от точки входа
+        - SL за последним HL/LH с допуском 0.5-1.0 ATR
+        - SL ≤ 2.2 ATR от точки входа
         - При ATR% ≥ 3.0% допускается расширение SL до 0.7-0.8 ATR
-        - TP1 = 1.0-1.3 ATR
-        - TP2 = 2.0-2.6 ATR
+        - TP1 = 1.5-2.5 ATR
+        - TP2 = 3.0-5.0 ATR
+        - TP3 = 6.0-9.0 ATR
         - Минимальный RR ≥ 1.8:1
         """
         from utils.logger import logger
@@ -559,6 +562,9 @@ class SignalGenerator:
             sl_tolerance = atr * self.HIGH_VOLATILITY_SL_EXTENSION
         else:
             sl_tolerance = atr * ((self.SL_TOLERANCE_MIN_ATR + self.SL_TOLERANCE_MAX_ATR) / 2)
+        
+        # Страхуемся, что допуск остаётся в целевом диапазоне
+        sl_tolerance = min(atr * self.SL_TOLERANCE_MAX_ATR, max(atr * self.SL_TOLERANCE_MIN_ATR, sl_tolerance))
         
         # Находим последний HL/LH для размещения SL
         last_swing = self._find_last_swing(direction)
@@ -580,13 +586,16 @@ class SignalGenerator:
             stop_distance = entry - stop
             
             # TP рассчитывается от stop_distance для правильного RR
-            # TP1 = 1.0-1.3 ATR от entry (минимум 1.8× stop_distance для RR ≥ 1.8:1)
+            # TP1 = 1.5-2.5 ATR от entry (минимум 1.8× stop_distance для RR ≥ 1.8:1)
             tp1_atr = atr * ((self.TP1_MIN_ATR + self.TP1_MAX_ATR) / 2)
             tp1_min_rr = entry + (stop_distance * self.MIN_RR_RATIO)
             tp1 = max(entry + tp1_atr, tp1_min_rr)  # Берём максимум для обеспечения RR
             
-            # TP2 = 2.0-2.6 ATR от entry
+            # TP2 = 3.0-5.0 ATR от entry
             tp2 = entry + (atr * ((self.TP2_MIN_ATR + self.TP2_MAX_ATR) / 2))
+            
+            # TP3 = 6.0-9.0 ATR от entry
+            tp3 = entry + (atr * ((self.TP3_MIN_ATR + self.TP3_MAX_ATR) / 2))
                 
         else:  # SHORT
             # SL за последним LH
@@ -602,13 +611,16 @@ class SignalGenerator:
             stop_distance = stop - entry
             
             # TP рассчитывается от stop_distance для правильного RR
-            # TP1 = 1.0-1.3 ATR от entry (минимум 1.8× stop_distance для RR ≥ 1.8:1)
+            # TP1 = 1.5-2.5 ATR от entry (минимум 1.8× stop_distance для RR ≥ 1.8:1)
             tp1_atr = atr * ((self.TP1_MIN_ATR + self.TP1_MAX_ATR) / 2)
             tp1_min_rr = entry - (stop_distance * self.MIN_RR_RATIO)
             tp1 = min(entry - tp1_atr, tp1_min_rr)  # Берём минимум для обеспечения RR
             
-            # TP2 = 2.0-2.6 ATR от entry
+            # TP2 = 3.0-5.0 ATR от entry
             tp2 = entry - (atr * ((self.TP2_MIN_ATR + self.TP2_MAX_ATR) / 2))
+            
+            # TP3 = 6.0-9.0 ATR от entry
+            tp3 = entry - (atr * ((self.TP3_MIN_ATR + self.TP3_MAX_ATR) / 2))
             
             if tp2 <= 0:
                 return None
@@ -631,20 +643,22 @@ class SignalGenerator:
         stop = self._round_price(stop, price)
         tp1 = self._round_price(tp1, price)
         tp2 = self._round_price(tp2, price)
+        tp3 = self._round_price(tp3, price)
         
         # Валидация порядка уровней
         if direction == 'LONG':
-            if not (stop < entry < tp1 < tp2):
+            if not (stop < entry < tp1 < tp2 < tp3):
                 return None
         else:
-            if not (stop > entry > tp1 > tp2):
+            if not (stop > entry > tp1 > tp2 > tp3):
                 return None
         
         return {
             'entry': entry,
             'stop': stop,
             'tp1': tp1,
-            'tp2': tp2
+            'tp2': tp2,
+            'tp3': tp3
         }
     
     def _find_last_swing(self, direction: str) -> Optional[float]:

@@ -148,7 +148,7 @@ class TelegramBot:
             keyboard = [
                 [InlineKeyboardButton(
                     "40% CASHBACK 💸 Official partner XT",
-                    url="https://www.xt.com/en/accounts/register?ref=KINGELONMARS"
+                    url="https://www.xt.com/en/accounts/register?ref=TRADINGBOT"
                 )]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)

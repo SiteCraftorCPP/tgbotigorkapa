@@ -79,15 +79,17 @@ class FilterSettings:
         'breakout_body_ratio': 55,  # %
         
         # === SL/TP ===
-        'sl_tolerance_min': 0.4,  # ATR
-        'sl_tolerance_max': 0.6,  # ATR
-        'max_sl_distance': 1.6,  # ATR
+        'sl_tolerance_min': 0.5,  # ATR
+        'sl_tolerance_max': 1.0,  # ATR
+        'max_sl_distance': 2.2,  # ATR
         'min_sl_liquidity': 90_000,
-        'max_ema50_deviation': 2.2,  # ATR
-        'tp1_min': 1.0,  # ATR
-        'tp1_max': 1.3,  # ATR
-        'tp2_min': 2.0,  # ATR
-        'tp2_max': 2.6,  # ATR
+        'max_ema50_deviation': 2.5,  # ATR
+        'tp1_min': 1.5,  # ATR
+        'tp1_max': 2.5,  # ATR
+        'tp2_min': 3.0,  # ATR
+        'tp2_max': 5.0,  # ATR
+        'tp3_min': 6.0,  # ATR
+        'tp3_max': 9.0,  # ATR
     }
     
     _settings = None
@@ -136,6 +138,16 @@ class FilterSettings:
         cls._apply_to_filters()
     
     @classmethod
+    def reset_to_current(cls):
+        """
+        Сбросить к актуальным сохранённым значениям (перечитать из БД)
+        без отката к дефолтным настройкам.
+        """
+        cls._settings = None
+        cls.get_all(force_reload=True)
+        cls._apply_to_filters()
+    
+    @classmethod
     def _load_from_db(cls):
         """Загрузить настройки из БД"""
         try:
@@ -152,10 +164,46 @@ class FilterSettings:
                     saved.pop('cooldown_hours', None)
                     saved.pop('min_data_candles', None)
                     cls._settings.update(saved)
+                    
+                    # Авто-обновление легаси-значений до новых целевых фильтров
+                    if cls._apply_legacy_migrations():
+                        cls._save_to_db()
             finally:
                 db.close()
         except Exception as e:
             print(f"[FilterSettings] Error loading from DB: {e}")
+    
+    @classmethod
+    def _apply_legacy_migrations(cls) -> bool:
+        """
+        Подтягиваем старые значения фильтров к новым требованиям,
+        чтобы текущие настройки соответствовали обновлённым лимитам.
+        """
+        changed = False
+        
+        legacy_defaults = {
+            'sl_tolerance_min': 0.4,
+            'sl_tolerance_max': 0.6,
+            'max_sl_distance': 1.6,
+            'max_ema50_deviation': 2.2,
+            'tp1_min': 1.0,
+            'tp1_max': 1.3,
+            'tp2_min': 2.0,
+            'tp2_max': 2.6,
+        }
+        
+        for key, legacy_value in legacy_defaults.items():
+            if cls._settings.get(key) == legacy_value:
+                cls._settings[key] = cls.DEFAULTS[key]
+                changed = True
+        
+        # Добавляем новые ключи TP3, если их не было в сохранённых настройках
+        for key in ['tp3_min', 'tp3_max']:
+            if key not in cls._settings:
+                cls._settings[key] = cls.DEFAULTS[key]
+                changed = True
+        
+        return changed
     
     @classmethod
     def _save_to_db(cls):
@@ -267,6 +315,8 @@ class FilterSettings:
             MarketFilters.TP1_MAX_ATR = s['tp1_max']
             MarketFilters.TP2_MIN_ATR = s['tp2_min']
             MarketFilters.TP2_MAX_ATR = s['tp2_max']
+            MarketFilters.TP3_MIN_ATR = s['tp3_min']
+            MarketFilters.TP3_MAX_ATR = s['tp3_max']
             
             # Signal Generator
             SignalGenerator.MIN_RR_RATIO = s['min_rr_ratio']
@@ -284,6 +334,8 @@ class FilterSettings:
             SignalGenerator.TP1_MAX_ATR = s['tp1_max']
             SignalGenerator.TP2_MIN_ATR = s['tp2_min']
             SignalGenerator.TP2_MAX_ATR = s['tp2_max']
+            SignalGenerator.TP3_MIN_ATR = s['tp3_min']
+            SignalGenerator.TP3_MAX_ATR = s['tp3_max']
             
             # Conservative Filters
             ConservativeFilters.MIN_LEVEL_TOUCHES = s['min_level_touches']
@@ -409,15 +461,17 @@ class FilterPanel:
             'name': '🎯 SL/TP параметры',
             'emoji': '🎯',
             'filters': [
-                ('sl_tolerance_min', 'SL допуск мин', 'ATR', [0.2, 0.3, 0.4, 0.5, 0.6]),
-                ('sl_tolerance_max', 'SL допуск макс', 'ATR', [0.4, 0.5, 0.6, 0.7, 0.8]),
-                ('max_sl_distance', 'Макс. SL', 'ATR', [1.2, 1.4, 1.6, 1.8, 2.0]),
+                ('sl_tolerance_min', 'SL допуск мин', 'ATR', [0.3, 0.5, 0.7, 0.9, 1.0]),
+                ('sl_tolerance_max', 'SL допуск макс', 'ATR', [0.6, 0.8, 1.0, 1.2, 1.4]),
+                ('max_sl_distance', 'Макс. SL', 'ATR', [1.6, 1.8, 2.0, 2.2, 2.4]),
                 ('min_sl_liquidity', 'Ликвидность SL', 'K$', [50, 70, 90, 120, 150]),
                 ('max_ema50_deviation', 'Отклонение EMA50', 'ATR', [1.5, 2.0, 2.2, 2.5, 3.0, 4.0]),
-                ('tp1_min', 'TP1 мин', 'ATR', [0.8, 1.0, 1.2, 1.5, 2.0]),
-                ('tp1_max', 'TP1 макс', 'ATR', [1.0, 1.2, 1.3, 1.5, 1.8]),
-                ('tp2_min', 'TP2 мин', 'ATR', [1.5, 1.8, 2.0, 2.5, 3.0]),
-                ('tp2_max', 'TP2 макс', 'ATR', [2.0, 2.4, 2.6, 3.0, 3.5]),
+                ('tp1_min', 'TP1 мин', 'ATR', [1.0, 1.2, 1.5, 1.8, 2.0]),
+                ('tp1_max', 'TP1 макс', 'ATR', [2.0, 2.2, 2.5, 2.8, 3.0]),
+                ('tp2_min', 'TP2 мин', 'ATR', [2.0, 2.5, 3.0, 3.5, 4.0]),
+                ('tp2_max', 'TP2 макс', 'ATR', [4.0, 4.5, 5.0, 5.5, 6.0]),
+                ('tp3_min', 'TP3 мин', 'ATR', [5.0, 6.0, 7.0, 8.0]),
+                ('tp3_max', 'TP3 макс', 'ATR', [7.0, 8.0, 9.0, 10.0]),
             ]
         },
     }
@@ -449,7 +503,7 @@ class FilterPanel:
         # Дополнительные кнопки
         keyboard.append([
             InlineKeyboardButton("📋 Текущие настройки", callback_data="fp_show_all"),
-            InlineKeyboardButton("🔄 Сбросить все", callback_data="fp_reset_confirm")
+            InlineKeyboardButton("🔄 Сбросить к текущим", callback_data="fp_reset_confirm")
         ])
         
         keyboard.append([
@@ -494,7 +548,7 @@ class FilterPanel:
                     display_value = "1/3"
                 else:
                     display_value = f"{int(current_value)}/4"
-            elif filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'min_opposite_distance']:
+            elif filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'tp3_min', 'tp3_max', 'min_opposite_distance']:
                 # Для ATR значений показываем с одним знаком после запятой
                 display_value = f"{current_value:.1f}{unit}"
             elif unit:
@@ -538,7 +592,7 @@ class FilterPanel:
         keyboard.append([InlineKeyboardButton(f"✏️ {filter_name}", callback_data="noop")])
         
         # Форматирование текущего значения для отображения
-        if filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'min_opposite_distance']:
+        if filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'tp3_min', 'tp3_max', 'min_opposite_distance']:
             current_display = f"{current_value:.1f}{unit}"
         elif filter_key == 'min_futures_volume':
             current_display = f"{current_value / 1_000_000:.1f}M$"
@@ -725,7 +779,8 @@ class FilterPanel:
 ├ Ликвидность SL: {min_sl_liquidity_display}
 ├ Отклонение EMA50: ≤{max_ema50_deviation:.1f} ATR
 ├ TP1: {tp1_min:.1f}-{tp1_max:.1f} ATR
-└ TP2: {tp2_min:.1f}-{tp2_max:.1f} ATR
+├ TP2: {tp2_min:.1f}-{tp2_max:.1f} ATR
+└ TP3: {tp3_min:.1f}-{tp3_max:.1f} ATR
 
 📋 *ЛОГИЧЕСКИЕ ФИЛЬТРЫ (не настраиваются):*
 
@@ -741,28 +796,28 @@ class FilterPanel:
 ├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей
 ├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта)
 ├ Pullback перед сигналом в диапазоне 0.2–0.8 ATR
-├ EMA50 направлена в сторону сигнала; отклонение ≤ 2 ATR
+├ EMA50 направлена в сторону сигнала; отклонение ≤ 2.5 ATR
 ├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего)
 ├ Пробой уровня: тело ≥ 55% свечи относительно уровня
 ├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей
-├ SL размещается за последним HL/LH с допуском 0.4–0.6 ATR
-├ SL ≤ 1.6 ATR от точки входа
+├ SL размещается за последним HL/LH с допуском 0.5–1.0 ATR
+├ SL ≤ 2.2 ATR от точки входа
 ├ При ATR% ≥ 3.0% допускается расширение SL до 0.7–0.8 ATR
 ├ Структура должна оставаться интактной (HH+HL для лонга / LL+LH для шорта)
 ├ Минимальный RR сохраняется ≥ 1.8 : 1
 ├ SL обязателен за последним HL/LH
 ├ Ликвидность в зоне SL ≥ 90 000 USDT (в пределах ±0.5%)
-├ Отклонение цены от EMA50 ≤ 2.2 ATR
+├ Отклонение цены от EMA50 ≤ 2.5 ATR
 ├ Правило действует только при полном соблюдении всех остальных условий
-├ TP рассчитывается по структуре: TP1 = 1.0–1.3 ATR, TP2 = 2.0–2.6 ATR
+├ TP рассчитывается по структуре: TP1 = 1.5–2.5 ATR, TP2 = 3.0–5.0 ATR, TP3 = 6.0–9.0 ATR
 ├ Минимальный RR сигнала ≥ 1.8 : 1
 ├ Сигнал не подаётся при нарушении структуры в момент формирования
 ├ Сигнал не подаётся если SL попадает в низкую ликвидность (≤ 90k внутри ±0.5%)
 ├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
 └ Повторный сигнал возможен только после обновления структуры и нового паттерна
 
-📊 *ВСЕГО ФИЛЬТРОВ: 70*
-├ Настраиваемых: 46
+📊 *ВСЕГО ФИЛЬТРОВ: 72*
+├ Настраиваемых: 48
 └ Логических: 24
 """.format(
             **s, 
@@ -824,26 +879,26 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
         )
         return
     
-    # Подтверждение сброса
+    # Подтверждение сброса к текущим сохранённым значениям
     if data == "fp_reset_confirm":
         keyboard = [
             [
-                InlineKeyboardButton("✅ Да, сбросить", callback_data="fp_reset_do"),
+                InlineKeyboardButton("✅ Да, обновить", callback_data="fp_reset_do"),
                 InlineKeyboardButton("❌ Отмена", callback_data="fp_main")
             ]
         ]
         await query.edit_message_text(
-            "⚠️ *Сбросить все настройки?*\n\nВсе фильтры будут возвращены к значениям по умолчанию.",
+            "⚠️ *Обновить значения до текущих?*\n\nНастройки будут перечитаны из БД без отката к дефолту.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.MARKDOWN
         )
         return
     
-    # Выполнить сброс
+    # Выполнить сброс к текущим
     if data == "fp_reset_do":
-        FilterSettings.reset_all()
+        FilterSettings.reset_to_current()
         await query.edit_message_text(
-            "✅ *Настройки сброшены!*\n\nВсе фильтры возвращены к значениям по умолчанию.",
+            "✅ *Настройки обновлены!*\n\nВсе фильтры перечитаны из БД и применены.",
             reply_markup=FilterPanel.get_main_menu(),
             parse_mode=ParseMode.MARKDOWN
         )
