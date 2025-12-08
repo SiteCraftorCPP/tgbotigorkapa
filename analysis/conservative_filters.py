@@ -17,9 +17,9 @@ class ConservativeFilters:
     
     MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
     MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
-    HTF_VOLUME_MULTIPLIER = 1.3  # HTF: объём ≥ 1.3× среднего
-    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.4  # Дистанция до противоположного уровня ≥ 1.4 ATR
-    BREAKOUT_BODY_RATIO = 0.55  # Свеча пробоя: тело ≥ 55% выше/ниже уровня
+    HTF_VOLUME_MULTIPLIER = 1.2  # HTF: объём ≥ 1.2× среднего
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.2  # Дистанция до противоположного уровня ≥ 1.2 ATR
+    BREAKOUT_BODY_RATIO = 0.50  # Свеча пробоя: тело ≥ 50% выше/ниже уровня
     
     # ========================================================================
     # CHANNEL POSITION
@@ -36,7 +36,7 @@ class ConservativeFilters:
     # VOLUME CONTRACTION
     # ========================================================================
     
-    VOLUME_CONTRACTION_RATIO = 0.8  # Откат на пониженном объёме < 80% среднего
+    VOLUME_CONTRACTION_RATIO = 0.9  # Откат на пониженном объёме < 90% среднего
     
     # ========================================================================
     # PATTERN CHECK
@@ -48,7 +48,7 @@ class ConservativeFilters:
     # BID/ASK IMBALANCE
     # ========================================================================
     
-    MAX_BID_ASK_IMBALANCE = 0.35  # Дисбаланс Bid/Ask ≤ 35%
+    MAX_BID_ASK_IMBALANCE = 0.40  # Дисбаланс Bid/Ask ≤ 40%
     
     @staticmethod
     async def check_all_filters(ticker: str, df: pd.DataFrame, entry: float, 
@@ -282,16 +282,8 @@ class ConservativeFilters:
         """
         result = {'passed': False, 'reason': ''}
         
-        if df.empty or len(df) < 5:
+        if df.empty or len(df) < 1:
             result['passed'] = True
-            return result
-        
-        if len(df) == 0:
-            result['passed'] = True  # Недостаточно данных - пропускаем
-            return result
-        
-        if len(df) == 0:
-            result['passed'] = True  # Недостаточно данных - пропускаем
             return result
         
         current_price = df.iloc[-1]['close']

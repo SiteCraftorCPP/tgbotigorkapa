@@ -1,9 +1,12 @@
 import asyncio
 from datetime import datetime
+from typing import Optional
 from exchange.xt_client import XTClient
 from analysis.signal_generator import SignalGenerator
 from analysis.market_filters import MarketFilters
 from telegram_bot.bot import TelegramBot
+from utils.deepseek_client import get_deepseek_client
+from utils.chart import render_signal_chart
 from database.models import init_db, Signal, SessionLocal
 from database.config_manager import ConfigManager
 from utils.logger import logger, log_signal, log_error, log_info, log_warning, log_filter_summary
@@ -28,6 +31,7 @@ class CryptoSignalBot:
     def __init__(self):
         self.xt_client = XTClient()
         self.telegram_bot = TelegramBot()
+        self.deepseek = get_deepseek_client()
         self.is_running = False
         self.polling_task = None
         self._semaphore = None  # Будет создан в async контексте
@@ -42,14 +46,23 @@ class CryptoSignalBot:
         
         # Запуск Telegram бота (polling)
         log_info("Initializing Telegram bot...")
+        
+        # Удаляем webhook если есть
+        try:
+            await self.telegram_bot.app.bot.delete_webhook(drop_pending_updates=True)
+            log_info("Webhook deleted")
+        except Exception as e:
+            log_info(f"Webhook check: {e}")
+        
+        # Инициализируем и запускаем Application
         await self.telegram_bot.app.initialize()
         await self.telegram_bot.app.start()
         log_info("Telegram bot app started")
         
-        # Запускаем polling в отдельной задаче
-        # В python-telegram-bot v21+ нужно использовать правильный способ
+        # Запускаем polling в отдельной задаче (блокирующий вызов)
+        # В v21+ start_polling запускает polling и работает в фоне
         self.polling_task = asyncio.create_task(self._run_telegram_polling())
-        await asyncio.sleep(2)  # Даем время на запуск polling
+        await asyncio.sleep(3)  # Даем время на запуск polling
         log_info("✅ Telegram bot polling task started")
         
         # Загрузка настроек из БД и применение к фильтрам
@@ -189,11 +202,15 @@ class CryptoSignalBot:
                     log_error(f"Exception in {pair} {tf}: {str(result)}", "analyze_market_parallel")
                     continue
                     
-                # Логируем только сигналы, остальное пропускаем
-                if result and result.get('status') == 'signal':
+                # ДЕБАГ: логируем все результаты
+                if result:
+                    status = result.get('status', 'NO_STATUS')
                     pair = result.get('pair', 'NO_PAIR')
                     tf = result.get('timeframe', 'NO_TF')
-                    log_info(f"[DEBUG] ✅ Found signal in batch: {pair} {tf}")
+                    if status == 'signal':
+                        log_info(f"[DEBUG] ✅ Found signal in batch: {pair} {tf}")
+                    else:
+                        log_info(f"[DEBUG] Result: {pair} {tf} status={status}")
                     
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
@@ -261,6 +278,26 @@ class CryptoSignalBot:
                 return
             
             log_info(f"[DEBUG] No duplicates for {ticker}, proceeding to save...")
+
+            # DeepSeek анализ перед сохранением/отправкой
+            log_info(f"[DEEPSEEK] Sending {ticker} to DeepSeek for validation...")
+            ds_result = await self.deepseek.analyze_signal(signal)
+            signal['deepseek'] = ds_result
+
+            if not ds_result.get('approved'):
+                reason = (ds_result.get('plan') or {}).get('reason') or ds_result.get('error') or 'Rejected'
+                log_info(f"[DEEPSEEK] ❌ Rejected {ticker}: {reason}")
+                try:
+                    await self.telegram_bot.send_admin_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
+                except Exception:
+                    pass
+                return
+
+            # Пытаемся построить график по плану DeepSeek
+            plan = ds_result.get('plan') if isinstance(ds_result, dict) else None
+            chart_path = await self._render_chart(signal, plan)
+            if chart_path:
+                signal['chart_path'] = chart_path
                             
             # Сохранение в БД
             log_info(f"[SAVING] Saving signal {signal['ticker']} {signal['direction']} to database...")
@@ -414,6 +451,17 @@ class CryptoSignalBot:
             except Exception as e:
                 log_error(f"Error activating entry for signal {signal.signal_id}: {str(e)}", "check_waiting_signal")
                 db.rollback()
+
+    async def _render_chart(self, signal: dict, plan: dict) -> Optional[str]:
+        """Строит график с уровнями для публикации"""
+        try:
+            df = await self.xt_client.get_ohlcv(signal['ticker'], signal['timeframe'], limit=200)
+            if df is None or df.empty:
+                return None
+            return render_signal_chart(df, signal, plan)
+        except Exception as e:
+            log_warning(f"Chart render failed for {signal.get('ticker')}: {e}")
+            return None
     
     async def _check_position_levels(self, signal: Signal, current_price: float, db):
         """Проверка достижения TP и SL для позиции"""
@@ -530,31 +578,52 @@ class CryptoSignalBot:
         """Запуск Telegram polling в фоне"""
         try:
             log_info("Starting Telegram polling...")
-            # В python-telegram-bot v21+ правильный способ - использовать updater.start_polling
+            
+            # Удаляем webhook перед polling
+            try:
+                await self.telegram_bot.app.bot.delete_webhook(drop_pending_updates=True)
+                log_info("Webhook deleted before polling")
+            except Exception as e:
+                log_info(f"Webhook check: {e}")
+            
+            # Запускаем polling - обновления обрабатываются автоматически через Application
             await self.telegram_bot.app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=None,
                 bootstrap_retries=-1
             )
-            log_info("✅ Telegram polling started successfully")
+            log_info("✅ Telegram polling started successfully - waiting for updates...")
             
-            # Держим задачу активной пока бот работает
-            # Application автоматически обрабатывает обновления через обработчики
+            # Держим задачу активной - polling работает автоматически
+            # Application обрабатывает обновления через зарегистрированные обработчики
+            # Проверяем, что Application запущен и готов обрабатывать обновления
             while self.is_running:
-                await asyncio.sleep(1)
+                # Проверяем статус polling
+                if self.telegram_bot.app.updater.running:
+                    await asyncio.sleep(1)
+                else:
+                    log_error("Polling stopped unexpectedly!", "Telegram polling")
+                    break
+                    
         except asyncio.CancelledError:
             log_info("Polling cancelled (normal shutdown)")
-            await self.telegram_bot.app.updater.stop()
         except Exception as e:
             log_error(f"Error in Telegram polling: {str(e)}", "Telegram polling")
             import traceback
             log_error(f"Traceback: {traceback.format_exc()}", "Telegram polling")
+        finally:
+            # Останавливаем polling при выходе
+            try:
+                if self.telegram_bot.app.updater.running:
+                    await self.telegram_bot.app.updater.stop()
+                    log_info("Polling stopped")
+            except Exception as e:
+                log_info(f"Error stopping polling: {e}")
     
     async def run(self):
         """Основной цикл работы"""
+        self.is_running = True  # Устанавливаем ПЕРЕД initialize
         await self.initialize()
-        
-        self.is_running = True
         
         log_info("Bot running in main loop")
         
@@ -602,11 +671,8 @@ class CryptoSignalBot:
                 log_info("Shutdown signal received")
                 break
             except Exception as e:
-                import traceback
-                error_msg = f"Error in main loop: {str(e)}\n{traceback.format_exc()}"
-                log_error(error_msg, "main loop")
-                log_warning("Bot will continue after 60 seconds...")
-                await asyncio.sleep(60)  # Пауза перед продолжением
+                log_error(str(e), "main loop")
+                await asyncio.sleep(60)
         
         log_info("Bot stopped")
         
@@ -640,26 +706,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    import traceback
-    restart_count = 0
-    max_restarts = 10
-    
-    while restart_count < max_restarts:
-        try:
-            asyncio.run(main())
-            # Если main() завершился без исключения, выходим
-            break
-        except KeyboardInterrupt:
-            log_info("\n\n⚠️  Bot stopped by user")
-            break
-        except Exception as e:
-            restart_count += 1
-            error_msg = f"\n❌ Fatal error (restart {restart_count}/{max_restarts}): {e}\n{traceback.format_exc()}"
-            log_error(error_msg, "fatal")
-            
-            if restart_count >= max_restarts:
-                log_error(f"Max restarts ({max_restarts}) reached. Bot stopped.", "fatal")
-                break
-            
-            log_warning(f"Restarting bot in 30 seconds... (attempt {restart_count}/{max_restarts})")
-            time.sleep(30)  # Пауза перед перезапуском
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nBot stopped by user")

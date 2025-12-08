@@ -23,6 +23,11 @@ DATABASE_URL = f"sqlite:///{DB_FILE}"
 # System
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
+# DeepSeek AI
+DEEPSEEK_API_KEYS = [k.strip() for k in os.getenv('DEEPSEEK_API_KEYS', '').split(',') if k.strip()]
+DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
+DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
+
 # Technical Analysis Parameters
 EMA_SHORT = 50
 EMA_LONG = 200

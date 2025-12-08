@@ -11,6 +11,7 @@ from .languages import t, get_user_lang
 from .filter_panel import FilterPanel, FilterSettings, handle_filter_panel_callback
 from sqlalchemy import func
 from datetime import datetime, timedelta
+import os
 from functools import wraps
 
 def admin_only(func):
@@ -106,6 +107,17 @@ class TelegramBot:
         from utils.logger import logger
         ticker = signal.get('ticker', 'UNKNOWN')
         
+        # Дополнительный барьер: если DeepSeek отклонил — не отправляем
+        ds = signal.get('deepseek')
+        if isinstance(ds, dict) and ds.get('approved') is False:
+            reason = (ds.get('plan') or {}).get('reason') or ds.get('error') or 'Rejected by DeepSeek'
+            logger.info(f"[DEEPSEEK] Block sending {ticker}: {reason}")
+            try:
+                await self.send_admin_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
+            except Exception:
+                pass
+            return False
+        
         try:
             logger.info(f"[TELEGRAM] Preparing to send signal {ticker} to channel...")
             
@@ -141,6 +153,9 @@ class TelegramBot:
             
             logger.info(f"[TELEGRAM] Channel ID: {config.TELEGRAM_CHANNEL_ID}")
             
+            deepseek_result = signal.get('deepseek') or {}
+            chart_path = signal.get('chart_path')
+
             message = self._format_signal_message(signal, lang='en')
             logger.debug(f"[TELEGRAM] Message formatted, length: {len(message)} chars")
             
@@ -162,12 +177,22 @@ class TelegramBot:
             
             for attempt in range(max_retries):
                 try:
-                    await self.bot.send_message(
-                        chat_id=config.TELEGRAM_CHANNEL_ID,
-                        text=message,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=reply_markup
-                    )
+                    if chart_path and os.path.exists(chart_path):
+                        with open(chart_path, "rb") as photo:
+                            await self.bot.send_photo(
+                                chat_id=config.TELEGRAM_CHANNEL_ID,
+                                photo=photo,
+                                caption=message,
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=reply_markup
+                            )
+                    else:
+                        await self.bot.send_message(
+                            chat_id=config.TELEGRAM_CHANNEL_ID,
+                            text=message,
+                            parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=reply_markup
+                        )
                     logger.info(f"[TELEGRAM] ✅ Signal {ticker} successfully sent to channel!")
                     return True
                 except RetryAfter as e:
@@ -277,7 +302,7 @@ class TelegramBot:
             return f"{price:.8f}".rstrip('0').rstrip('.')
     
     def _format_signal_message(self, signal: dict, lang: str = 'en') -> str:
-        """Форматирование упрощенного сигнала"""
+        """Форматирование сигнала"""
         
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
         
@@ -287,6 +312,7 @@ class TelegramBot:
         tp2 = signal['take_profit_2']
         tp3 = signal['take_profit_3']
         stop = signal['stop_loss']
+        leverage = 10  # отображаем проценты с учётом плеча 10х
         
         if signal['direction'] == 'LONG':
             profit_tp1 = ((tp1 - entry) / entry) * 100
@@ -298,6 +324,12 @@ class TelegramBot:
             profit_tp2 = ((entry - tp2) / entry) * 100
             profit_tp3 = ((entry - tp3) / entry) * 100
             risk_percent = ((stop - entry) / entry) * 100
+
+        # Отображаем проценты с учётом плеча
+        profit_tp1 *= leverage
+        profit_tp2 *= leverage
+        profit_tp3 *= leverage
+        risk_percent *= leverage
         
         # Форматирование цен с учётом их величины
         entry_str = self._format_price(entry)
@@ -318,6 +350,7 @@ class TelegramBot:
 ├ TP2: {tp2_str} (+{profit_tp2:.1f}%)
 └ TP3: {tp3_str} (+{profit_tp3:.1f}%)
 
+⚡️ Leverage 10x
 ⚠️ After TP1 - move SL to breakeven!
 """
         return message.strip()

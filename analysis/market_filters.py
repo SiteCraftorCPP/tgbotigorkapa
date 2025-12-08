@@ -23,94 +23,94 @@ class MarketFilters:
     # ========================================================================
     
     # Капитализация
-    TOP_COINS_LIMIT = 200  # топ-200
+    TOP_COINS_LIMIT = 300  # топ-300
     
     # Объём фьючерсов 24h
-    MIN_FUTURES_VOLUME_USDT = 3_000_000  # ≥ 3,000,000 USDT
+    MIN_FUTURES_VOLUME_USDT = 2_000_000  # ≥ 2,000,000 USDT
     
     # Объём 60m относительно 24h
-    MIN_VOLUME_60M_RATIO = 0.012  # ≥ 1.2% от 24h
+    MIN_VOLUME_60M_RATIO = 0.010  # ≥ 1.0% от 24h
     
     # Спред
-    MAX_SPREAD_PERCENT = 0.18  # ≤ 0.18%
-    MAX_AVG_SPREAD_15M_PERCENT = 0.22  # Средний спред 15m ≤ 0.22%
+    MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
+    MAX_AVG_SPREAD_15M_PERCENT = 0.30  # Средний спред 15m ≤ 0.30%
     
     # Ликвидность
-    MIN_LIQUIDITY_USDT = 300_000  # ≥ 300,000 USDT в пределах ±0.5%
+    MIN_LIQUIDITY_USDT = 200_000  # ≥ 200,000 USDT в пределах ±0.5%
     LIQUIDITY_PRICE_RANGE = 0.005  # ±0.5%
     
     # ATR волатильность
-    ATR_MIN_PERCENT = 0.3  # ≥ 0.3%
-    ATR_MAX_PERCENT = 3.5  # ≤ 3.5%
+    ATR_MIN_PERCENT = 0.8  # ≥ 0.8%
+    ATR_MAX_PERCENT = 5.0  # ≤ 5.0%
     MAX_ATR_DEVIATION = 35.0  # Отклонение ATR ≤ 35%
     
     # Свечи и разрывы
-    MAX_CANDLE_BODY_PERCENT = 1.8  # Нет свечей с Close-Open > 1.8%
-    MAX_HIGH_LOW_GAP_PERCENT = 2.5  # Нет High/Low разрывов > 2.5% за 20 свечей
+    MAX_CANDLE_BODY_PERCENT = 2.5  # Нет свечей с Close-Open > 2.5%
+    MAX_HIGH_LOW_GAP_PERCENT = 3.0  # Нет High/Low разрывов > 3.0% за 20 свечей
     CANDLE_CHECK_LOOKBACK = 20  # Последние 20 свечей
     
     # Funding Rate
-    FUNDING_RATE_MIN = -0.0006  # от -0.06%
-    FUNDING_RATE_MAX = 0.0006   # до +0.06%
+    FUNDING_RATE_MIN = -0.0008  # от -0.08%
+    FUNDING_RATE_MAX = 0.0008   # до +0.08%
     
     # Open Interest
-    MAX_OI_CHANGE_15M_PERCENT = 18.0  # Изменение OI за 15m ≤ 18%
+    MAX_OI_CHANGE_15M_PERCENT = 25.0  # Изменение OI за 15m ≤ 25%
     
     # Возраст контракта
-    MIN_CONTRACT_AGE_DAYS = 20  # ≥ 20 дней
+    MIN_CONTRACT_AGE_DAYS = 10  # ≥ 10 дней
     
     # ========================================================================
     # BTC/ETH ФИЛЬТРЫ
     # ========================================================================
     
-    BTC_MAX_MOVE_5M = 1.8  # BTC движение за 5 минут ≤ 1.8%
-    BTC_MAX_MOVE_15M = 2.8  # BTC движение за 15 минут ≤ 2.8%
-    BTC_MAX_REVERSALS_30M = 2  # BTC разворотов > 0.7% за 30 минут ≤ 2
+    BTC_MAX_MOVE_5M = 2.0  # BTC движение за 5 минут ≤ 2.0%
+    BTC_MAX_MOVE_15M = 3.0  # BTC движение за 15 минут ≤ 3.0%
+    BTC_MAX_REVERSALS_30M = 3  # BTC разворотов > 0.7% за 30 минут ≤ 3
     BTC_REVERSAL_THRESHOLD = 0.7  # Порог разворота 0.7%
-    BTC_PAUSE_MINUTES = 20  # Пауза после триггера BTC: 20 минут
-    BTC_STRONG_MOVE_1H = 3.0  # Если BTC ±3% за 1 час - только по направлению BTC
-    ETH_MAX_MOVE_15M = 2.5  # ETH движение за 15 минут ≤ 2.5%
+    BTC_PAUSE_MINUTES = 10  # Пауза после триггера BTC: 10 минут
+    BTC_STRONG_MOVE_1H = 4.0  # Если BTC ±4% за 1 час - только по направлению BTC
+    ETH_MAX_MOVE_15M = 3.0  # ETH движение за 15 минут ≤ 3.0%
     
     # ========================================================================
     # ВРЕМЕННЫЕ ФИЛЬТРЫ
     # ========================================================================
     
-    TIME_GUARD_START_MINUTES = 5  # Запрет первые 5 минут каждого часа
-    TIME_GUARD_END_MINUTES = 3  # Запрет последние 3 минуты каждого часа
-    MIN_HOURLY_VOLUME_RATIO = 0.75  # Объём за 1 час ≥ 75% от среднего 24h
+    TIME_GUARD_START_MINUTES = 0  # Запрет первые X минут каждого часа
+    TIME_GUARD_END_MINUTES = 0  # Запрет последние X минут каждого часа
+    MIN_HOURLY_VOLUME_RATIO = 0.60  # Объём за 1 час ≥ 60% от среднего 24h
     
     # ========================================================================
     # ИНДИКАТОРЫ
     # ========================================================================
     
-    RSI_MAX_LONG = 68  # RSI для лонга ≤ 68
-    RSI_MIN_SHORT = 32  # RSI для шорта ≥ 32
-    ADX_MIN = 18  # ADX ≥ 18
-    ADX_MAX = 45  # ADX ≤ 45
-    MIN_RR_RATIO = 1.8  # Минимальный RR ≥ 1.8:1
+    RSI_MAX_LONG = 70  # RSI для лонга ≤ 70
+    RSI_MIN_SHORT = 30  # RSI для шорта ≥ 30
+    ADX_MIN = 15  # ADX ≥ 15
+    ADX_MAX = 55  # ADX ≤ 55
+    MIN_RR_RATIO = 1.5  # Минимальный RR ≥ 1.5:1
     
     # ========================================================================
     # ТРЕНД И СТРУКТУРА
     # ========================================================================
     
-    MAX_EMA50_DISTANCE_ATR = 2.0  # Расстояние от EMA50 ≤ 2 ATR
-    PULLBACK_MIN_ATR = 0.3  # Pullback минимум 0.3 ATR
-    PULLBACK_MAX_ATR = 0.6  # Pullback максимум 0.6 ATR
-    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей в направлении (или 0.333 для 1 из 3)
+    MAX_EMA50_DISTANCE_ATR = 3.0  # Расстояние от EMA50 ≤ 3 ATR
+    PULLBACK_MIN_ATR = 0.1  # Pullback минимум 0.1 ATR
+    PULLBACK_MAX_ATR = 1.0  # Pullback максимум 1.0 ATR
+    MIN_TREND_CANDLES = 0.333  # Минимум 1 из 3 свечей в направлении
     
     # ========================================================================
     # КАЧЕСТВО СИГНАЛА
     # ========================================================================
     
-    IMPULSE_BODY_RATIO = 0.60  # Импульсная свеча: тело ≥ 60%
-    IMPULSE_AVG_MULTIPLIER = 1.25  # Импульсная свеча ≥ 1.25× среднего тела
-    MAX_DIRTY_CANDLES = 3  # Не более 3 грязных свечей за 10 свечей
+    IMPULSE_BODY_RATIO = 0.55  # Импульсная свеча: тело ≥ 55%
+    IMPULSE_AVG_MULTIPLIER = 1.20  # Импульсная свеча ≥ 1.20× среднего тела
+    MAX_DIRTY_CANDLES = 4  # Не более 4 грязных свечей за 10 свечей
     DIRTY_CANDLE_TAIL_RATIO = 0.60  # Грязная свеча: хвосты > 60%
-    EMA50_SLOPE_MIN_CANDLES = 7  # Наклон EMA50 в нужную сторону ≥ 7 из 10
-    MAX_BID_ASK_IMBALANCE = 0.35  # Дисбаланс Bid/Ask ≤ 35%
-    MAX_STDDEV_RATIO = 1.25  # StdDev 10 свечей ≤ 1.25× StdDev 50 свечей
+    EMA50_SLOPE_MIN_CANDLES = 6  # Наклон EMA50 в нужную сторону ≥ 6 из 10
+    MAX_BID_ASK_IMBALANCE = 0.40  # Дисбаланс Bid/Ask ≤ 40%
+    MAX_STDDEV_RATIO = 1.35  # StdDev 10 свечей ≤ 1.35× StdDev 50 свечей
     IMPULSE_VOLUME_MULTIPLIER = 1.15  # Объём импульсной свечи ≥ 1.15× среднего
-    MAX_SAW_CANDLES = 3  # Максимум 3 пила-свечи за 12 свечей
+    MAX_SAW_CANDLES = 4  # Максимум 4 пила-свечи за 12 свечей
     SAW_CANDLE_TAIL_RATIO = 0.70  # Пила-свеча: хвосты > 70% тела
     
     # ========================================================================
@@ -119,24 +119,24 @@ class MarketFilters:
     
     MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
     MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
-    HTF_VOLUME_MULTIPLIER = 1.3  # HTF: объём ≥ 1.3× среднего
-    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.4  # Дистанция до противоположного уровня ≥ 1.4 ATR
-    BREAKOUT_BODY_RATIO = 0.55  # Свеча пробоя: тело ≥ 55% выше/ниже уровня
+    HTF_VOLUME_MULTIPLIER = 1.2  # HTF: объём ≥ 1.2× среднего
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.2  # Дистанция до противоположного уровня ≥ 1.2 ATR
+    BREAKOUT_BODY_RATIO = 0.50  # Свеча пробоя: тело ≥ 50% выше/ниже уровня
     
     # ========================================================================
     # SL/TP ПАРАМЕТРЫ
     # ========================================================================
     
-    SL_TOLERANCE_MIN_ATR = 0.5  # SL допуск минимум 0.5 ATR
-    SL_TOLERANCE_MAX_ATR = 1.0  # SL допуск максимум 1.0 ATR
-    MAX_SL_DISTANCE_ATR = 2.2  # SL ≤ 2.2 ATR от входа
+    SL_TOLERANCE_MIN_ATR = 0.7  # SL допуск минимум 0.7 ATR
+    SL_TOLERANCE_MAX_ATR = 1.2  # SL допуск максимум 1.2 ATR
+    MAX_SL_DISTANCE_ATR = 2.4  # SL ≤ 2.4 ATR от входа
     HIGH_VOLATILITY_SL_EXTENSION = 0.8  # При ATR% ≥ 3.0% допуск до 0.8 ATR
     MIN_SL_LIQUIDITY_USDT = 90_000  # Ликвидность в зоне SL ≥ 90,000 USDT
     MAX_EMA50_DEVIATION_ATR = 2.5  # Отклонение от EMA50 ≤ 2.5 ATR
-    TP1_MIN_ATR = 1.5  # TP1 = 1.5-2.5 ATR
-    TP1_MAX_ATR = 2.5
-    TP2_MIN_ATR = 3.0  # TP2 = 3.0-5.0 ATR
-    TP2_MAX_ATR = 5.0
+    TP1_MIN_ATR = 1.5  # TP1 = 1.5-1.8 ATR
+    TP1_MAX_ATR = 1.8
+    TP2_MIN_ATR = 3.0  # TP2 = 3.0-3.5 ATR
+    TP2_MAX_ATR = 3.5
     TP3_MIN_ATR = 6.0  # TP3 = 6.0-9.0 ATR
     TP3_MAX_ATR = 9.0
     CANCEL_IMPULSE_MULTIPLIER = 1.3  # Отмена при обратном импульсе ≥ 1.3× среднего
@@ -200,7 +200,7 @@ class MarketFilters:
             result['reason'] = "Not in TOP-200 by market cap"
             return result
         
-        # 2. Futures volume ≥ 3,000,000 USDT
+        # 2. Futures volume ≥ 2,000,000 USDT
         volume_24h = await MarketFilters.check_futures_volume(ticker, client)
         if volume_24h is None or volume_24h < MarketFilters.MIN_FUTURES_VOLUME_USDT:
             vol_str = f"{volume_24h:,.0f}" if volume_24h else "0"
@@ -208,7 +208,7 @@ class MarketFilters:
             return result
         result['volume_24h'] = volume_24h
         
-        # 3. Spread ≤ 0.18%
+        # 3. Spread ≤ 0.35%
         spread = await MarketFilters.check_spread(ticker, client)
         if spread is None:
             result['reason'] = "Failed to get spread"
@@ -263,25 +263,25 @@ class MarketFilters:
             result['reason'] = hourly_vol_check['reason']
             return result
         
-        # 11. Средний спред 15m ≤ 0.22%
+        # 11. Средний спред 15m ≤ 0.30%
         avg_spread_check = await MarketFilters.check_avg_spread_15m(ticker, client, df, timeframe)
         if not avg_spread_check['passed']:
             result['reason'] = avg_spread_check['reason']
             return result
         
-        # 12. Funding Rate от −0.06% до +0.06%
+        # 12. Funding Rate от −0.08% до +0.08%
         funding_check = await MarketFilters.check_funding_rate(ticker, client)
         if not funding_check['passed']:
             result['reason'] = funding_check['reason']
             return result
         
-        # 13. Изменение Open Interest за 15m ≤ 18%
+        # 13. Изменение Open Interest за 15m ≤ 25%
         oi_check = await MarketFilters.check_open_interest_change(ticker, client, df, timeframe)
         if not oi_check['passed']:
             result['reason'] = oi_check['reason']
             return result
         
-        # 14. Возраст фьючерсного контракта ≥ 20 дней
+        # 14. Возраст фьючерсного контракта ≥ 10 дней
         contract_age_check = await MarketFilters.check_contract_age(ticker, client)
         if not contract_age_check['passed']:
             result['reason'] = contract_age_check['reason']
@@ -312,8 +312,8 @@ class MarketFilters:
     def check_time_guards() -> Dict:
         """
         Временные фильтры:
-        - Запрет первые 5 минут каждого часа
-        - Запрет последние 3 минуты каждого часа
+        - Запрет первые N минут каждого часа
+        - Запрет последние N минут каждого часа
         """
         result = {'passed': False, 'reason': ''}
         
@@ -340,12 +340,12 @@ class MarketFilters:
     async def check_btc_eth_filters(client: XTClient, direction: str = None) -> Dict:
         """
         BTC/ETH фильтры:
-        - BTC движение за 5 минут ≤ 1.8%
-        - BTC движение за 15 минут ≤ 2.8%
-        - BTC разворотов > 0.7% за 30 минут ≤ 2
-        - Пауза после триггера BTC: 20 минут
-        - Если BTC ±3% за 1 час — сигналы только по направлению BTC
-        - ETH движение за 15 минут ≤ 2.5%
+        - BTC движение за 5 минут ≤ 2.0%
+        - BTC движение за 15 минут ≤ 3.0%
+        - BTC разворотов > 0.7% за 30 минут ≤ 3
+        - Пауза после триггера BTC: 10 минут
+        - Если BTC ±4% за 1 час — сигналы только по направлению BTC
+        - ETH движение за 15 минут ≤ 3.0%
         """
         from utils.cache import btc_cache
         
@@ -519,7 +519,7 @@ class MarketFilters:
     
     @staticmethod
     async def check_spread(ticker: str, client: XTClient) -> Optional[float]:
-        """Check spread ≤ 0.18%"""
+        """Check spread ≤ 0.35%"""
         try:
             ticker_data = await client.get_ticker(ticker)
             
@@ -609,13 +609,13 @@ class MarketFilters:
     
     @staticmethod
     def check_candle_bodies(df: pd.DataFrame) -> Dict:
-        """No candles with Close-Open > 1.8% (ОТКЛЮЧЕНО ДЛЯ ТЕСТИРОВАНИЯ)"""
+        """No candles with Close-Open > 2.5% (ОТКЛЮЧЕНО ДЛЯ ТЕСТИРОВАНИЯ)"""
         result = {'passed': True, 'reason': ''}  # Всегда разрешаем
         return result
     
     @staticmethod
     def check_high_low_gaps(df: pd.DataFrame) -> Dict:
-        """No High/Low gaps > 2.5% in last 20 candles"""
+        """No High/Low gaps > 3.0% in last 20 candles"""
         result = {'passed': True, 'reason': ''}
         
         if df.empty or len(df) < MarketFilters.CANDLE_CHECK_LOOKBACK:
@@ -652,7 +652,7 @@ class MarketFilters:
     
     @staticmethod
     def check_volume_60m_ratio(df: pd.DataFrame, volume_24h: float, timeframe: str = '5m') -> Dict:
-        """Volume 60m ≥ 1.2% of 24h (адаптивно для разных таймфреймов)"""
+        """Volume 60m ≥ 1.0% of 24h (адаптивно для разных таймфреймов)"""
         result = {'passed': False, 'reason': ''}
         
         if df.empty or volume_24h is None or volume_24h == 0:
@@ -695,7 +695,7 @@ class MarketFilters:
     
     @staticmethod
     def check_hourly_volume(df: pd.DataFrame, timeframe: str = '5m') -> Dict:
-        """Hourly volume ≥ 75% of average 24h hourly volume (адаптивно для разных таймфреймов)"""
+        """Hourly volume ≥ 60% of average 24h hourly volume (адаптивно для разных таймфреймов)"""
         result = {'passed': False, 'reason': ''}
         
         if df.empty:
@@ -749,9 +749,9 @@ class MarketFilters:
     def check_indicators(df: pd.DataFrame, direction: str) -> Dict:
         """
         Проверка индикаторов:
-        - RSI для лонга ≤ 68
-        - RSI для шорта ≥ 32
-        - ADX ≥ 18 и ≤ 45
+        - RSI для лонга ≤ 70
+        - RSI для шорта ≥ 30
+        - ADX ≥ 15 и ≤ 55
         """
         result = {'passed': False, 'reason': ''}
         
@@ -824,12 +824,12 @@ class MarketFilters:
     def check_signal_quality(df: pd.DataFrame, direction: str) -> Dict:
         """
         Проверка качества сигнала:
-        - Импульсная свеча ≥ 1.25× среднего тела
+        - Импульсная свеча ≥ 1.20× среднего тела
         - Объём импульсной свечи ≥ 1.15× среднего объёма за 20 свечей
-        - Не более 3 грязных свечей за 10 свечей
-        - Наклон EMA50 в нужную сторону ≥ 7 из 10
-        - StdDev 10 свечей ≤ 1.25× StdDev 50 свечей
-        - Максимум 3 пила-свечи за 12 свечей
+        - Не более 4 грязных свечей за 10 свечей
+        - Наклон EMA50 в нужную сторону ≥ 6 из 10
+        - StdDev 10 свечей ≤ 1.35× StdDev 50 свечей
+        - Максимум 4 пила-свечи за 12 свечей
         - Паттерн: импульс → маленькая свеча / поглощение / пробой / пинбар
         """
         result = {'passed': False, 'reason': ''}
@@ -1064,7 +1064,7 @@ class MarketFilters:
     
     @staticmethod
     async def check_avg_spread_15m(ticker: str, client: XTClient, df: pd.DataFrame, timeframe: str) -> Dict:
-        """Средний спред 15m ≤ 0.22%"""
+        """Средний спред 15m ≤ 0.30%"""
         result = {'passed': False, 'reason': ''}
         
         try:
@@ -1120,7 +1120,7 @@ class MarketFilters:
             
     @staticmethod
     async def check_funding_rate(ticker: str, client: XTClient) -> Dict:
-        """Funding Rate от −0.06% до +0.06%"""
+        """Funding Rate от −0.08% до +0.08%"""
         result = {'passed': False, 'reason': ''}
         
         try:
@@ -1155,7 +1155,7 @@ class MarketFilters:
     
     @staticmethod
     async def check_open_interest_change(ticker: str, client: XTClient, df: pd.DataFrame, timeframe: str) -> Dict:
-        """Изменение Open Interest за 15m ≤ 18%"""
+        """Изменение Open Interest за 15m ≤ 25%"""
         result = {'passed': False, 'reason': ''}
         
         try:
@@ -1198,7 +1198,7 @@ class MarketFilters:
     
     @staticmethod
     async def check_contract_age(ticker: str, client: XTClient) -> Dict:
-        """Возраст фьючерсного контракта ≥ 20 дней"""
+        """Возраст фьючерсного контракта ≥ 10 дней"""
         result = {'passed': False, 'reason': ''}
         
         try:
