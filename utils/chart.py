@@ -122,6 +122,7 @@ def render_signal_chart(
             "style": style,
             "hlines": dict(hlines=levels, colors=colors, linewidths=[1.4] * len(levels)),
             "title": f"{signal.get('ticker')} {signal.get('timeframe')}",
+            "figsize": (16, 9),  # Ширина x Высота в дюймах (широкий формат)
             "savefig": dict(fname=out_path, dpi=150, bbox_inches="tight", facecolor="#0b0d11"),
         }
         if fill_between:
