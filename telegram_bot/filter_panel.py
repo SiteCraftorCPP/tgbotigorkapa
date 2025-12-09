@@ -50,12 +50,12 @@ class FilterSettings:
         'rsi_min_short': 30,
         'adx_min': 15,
         'adx_max': 55,
-        'min_rr_ratio': 1.5,
+        # (RR управляется логикой MEGABOT, не настраивается здесь)
         
         # === ТРЕНД И СТРУКТУРА ===
         'max_ema50_distance': 3.0,  # ATR
-        'pullback_min': 0.2,  # ATR
-        'pullback_max': 0.8,  # ATR
+        'pullback_min': 0.1,  # ATR
+        'pullback_max': 1.0,  # ATR
         'min_trend_candles': 0.333,  # 1 из 3 свечей (0.333) или N из 4
         'trend_neutral_threshold': 20,  # Порог нейтральности тренда (score)
         'trend_strong_threshold': 35,  # Порог сильного тренда H1 (score)
@@ -74,22 +74,9 @@ class FilterSettings:
         
         # === УРОВНИ ===
         'min_level_touches': 2,
-        'htf_volume_multiplier': 1.3,
+        'htf_volume_multiplier': 1.2,
         'min_opposite_distance': 1.2,  # ATR
-        'breakout_body_ratio': 55,  # %
-        
-        # === SL/TP ===
-        'sl_tolerance_min': 0.7,  # ATR
-        'sl_tolerance_max': 1.2,  # ATR
-        'max_sl_distance': 2.4,  # ATR
-        'min_sl_liquidity': 90_000,
-        'max_ema50_deviation': 2.5,  # ATR
-        'tp1_min': 1.5,  # ATR
-        'tp1_max': 1.8,  # ATR
-        'tp2_min': 3.0,  # ATR
-        'tp2_max': 3.5,  # ATR
-        'tp3_min': 6.0,  # ATR
-        'tp3_max': 9.0,  # ATR
+        'breakout_body_ratio': 50,  # %
     }
     
     _settings = None
@@ -181,28 +168,6 @@ class FilterSettings:
         """
         changed = False
         
-        legacy_defaults = {
-            'sl_tolerance_min': 0.4,
-            'sl_tolerance_max': 0.6,
-            'max_sl_distance': 1.6,
-            'max_ema50_deviation': 2.2,
-            'tp1_min': 1.0,
-            'tp1_max': 1.3,
-            'tp2_min': 2.0,
-            'tp2_max': 2.6,
-        }
-        
-        for key, legacy_value in legacy_defaults.items():
-            if cls._settings.get(key) == legacy_value:
-                cls._settings[key] = cls.DEFAULTS[key]
-                changed = True
-        
-        # Добавляем новые ключи TP3, если их не было в сохранённых настройках
-        for key in ['tp3_min', 'tp3_max']:
-            if key not in cls._settings:
-                cls._settings[key] = cls.DEFAULTS[key]
-                changed = True
-        
         return changed
     
     @classmethod
@@ -276,7 +241,7 @@ class FilterSettings:
             MarketFilters.RSI_MIN_SHORT = s['rsi_min_short']
             MarketFilters.ADX_MIN = s['adx_min']
             MarketFilters.ADX_MAX = s['adx_max']
-            MarketFilters.MIN_RR_RATIO = s['min_rr_ratio']
+            # MIN_RR_RATIO остаётся в логике MEGABOT, не настраивается здесь
             
             # Trend & Structure
             MarketFilters.MAX_EMA50_DISTANCE_ATR = s['max_ema50_distance']
@@ -306,36 +271,16 @@ class FilterSettings:
             MarketFilters.BREAKOUT_BODY_RATIO = s['breakout_body_ratio'] / 100
             
             # SL/TP
-            MarketFilters.SL_TOLERANCE_MIN_ATR = s['sl_tolerance_min']
-            MarketFilters.SL_TOLERANCE_MAX_ATR = s['sl_tolerance_max']
-            MarketFilters.MAX_SL_DISTANCE_ATR = s['max_sl_distance']
-            MarketFilters.MIN_SL_LIQUIDITY_USDT = s['min_sl_liquidity']
-            MarketFilters.MAX_EMA50_DEVIATION_ATR = s['max_ema50_deviation']
-            MarketFilters.TP1_MIN_ATR = s['tp1_min']
-            MarketFilters.TP1_MAX_ATR = s['tp1_max']
-            MarketFilters.TP2_MIN_ATR = s['tp2_min']
-            MarketFilters.TP2_MAX_ATR = s['tp2_max']
-            MarketFilters.TP3_MIN_ATR = s['tp3_min']
-            MarketFilters.TP3_MAX_ATR = s['tp3_max']
+            # SL/TP и RR настраиваются внутри MEGABOT/DeepSeek, здесь не управляются
             
             # Signal Generator
-            SignalGenerator.MIN_RR_RATIO = s['min_rr_ratio']
-            SignalGenerator.SL_TOLERANCE_MIN_ATR = s['sl_tolerance_min']
-            SignalGenerator.SL_TOLERANCE_MAX_ATR = s['sl_tolerance_max']
-            SignalGenerator.MAX_SL_DISTANCE_ATR = s['max_sl_distance']
             SignalGenerator.MAX_EMA50_DISTANCE_ATR = s['max_ema50_distance']
-            SignalGenerator.MAX_EMA50_DEVIATION_ATR = s['max_ema50_deviation']
             SignalGenerator.PULLBACK_MIN_ATR = s['pullback_min']
             SignalGenerator.PULLBACK_MAX_ATR = s['pullback_max']
             SignalGenerator.MIN_TREND_CANDLES = s['min_trend_candles']
             SignalGenerator.IMPULSE_BODY_RATIO = s['impulse_body_ratio'] / 100
             SignalGenerator.SIGNAL_VOLUME_MULTIPLIER = s['signal_volume_multiplier']
-            SignalGenerator.TP1_MIN_ATR = s['tp1_min']
-            SignalGenerator.TP1_MAX_ATR = s['tp1_max']
-            SignalGenerator.TP2_MIN_ATR = s['tp2_min']
-            SignalGenerator.TP2_MAX_ATR = s['tp2_max']
-            SignalGenerator.TP3_MIN_ATR = s['tp3_min']
-            SignalGenerator.TP3_MAX_ATR = s['tp3_max']
+            # SL/TP и RR остаются в логике генератора и DeepSeek, не настраиваются здесь
             
             # Conservative Filters
             ConservativeFilters.MIN_LEVEL_TOUCHES = s['min_level_touches']
@@ -417,7 +362,6 @@ class FilterPanel:
                 ('rsi_min_short', 'RSI мин SHORT', '', [25, 30, 32, 35, 40]),
                 ('adx_min', 'ADX мин', '', [15, 18, 20, 25, 30]),
                 ('adx_max', 'ADX макс', '', [40, 45, 50, 55, 60]),
-                ('min_rr_ratio', 'Мин. RR', ':1', [1.2, 1.5, 1.8, 2.0, 2.5]),
             ]
         },
         'trend': {
@@ -455,23 +399,6 @@ class FilterPanel:
                 ('htf_volume_multiplier', 'HTF объём', 'x', [1.1, 1.2, 1.3, 1.5, 2.0]),
                 ('min_opposite_distance', 'До уровня', 'ATR', [1.0, 1.2, 1.4, 1.6, 2.0]),
                 ('breakout_body_ratio', 'Пробой тело', '%', [45, 50, 55, 60, 70]),
-            ]
-        },
-        'sltp': {
-            'name': '🎯 SL/TP параметры',
-            'emoji': '🎯',
-            'filters': [
-                ('sl_tolerance_min', 'SL допуск мин', 'ATR', [0.3, 0.5, 0.7, 0.9, 1.0]),
-                ('sl_tolerance_max', 'SL допуск макс', 'ATR', [0.6, 0.8, 1.0, 1.2, 1.4]),
-                ('max_sl_distance', 'Макс. SL', 'ATR', [1.6, 1.8, 2.0, 2.2, 2.4]),
-                ('min_sl_liquidity', 'Ликвидность SL', 'K$', [50, 70, 90, 120, 150]),
-                ('max_ema50_deviation', 'Отклонение EMA50', 'ATR', [1.5, 2.0, 2.2, 2.5, 3.0, 4.0]),
-                ('tp1_min', 'TP1 мин', 'ATR', [1.0, 1.2, 1.5, 1.8, 2.0]),
-                ('tp1_max', 'TP1 макс', 'ATR', [2.0, 2.2, 2.5, 2.8, 3.0]),
-                ('tp2_min', 'TP2 мин', 'ATR', [2.0, 2.5, 3.0, 3.5, 4.0]),
-                ('tp2_max', 'TP2 макс', 'ATR', [4.0, 4.5, 5.0, 5.5, 6.0]),
-                ('tp3_min', 'TP3 мин', 'ATR', [5.0, 6.0, 7.0, 8.0]),
-                ('tp3_max', 'TP3 макс', 'ATR', [7.0, 8.0, 9.0, 10.0]),
             ]
         },
     }
@@ -534,8 +461,6 @@ class FilterPanel:
                 display_value = f"{current_value / 1_000_000:.1f}M$"
             elif filter_key == 'min_liquidity':
                 display_value = f"{current_value / 1_000:.0f}K$"
-            elif filter_key == 'min_sl_liquidity':
-                display_value = f"{current_value / 1_000:.0f}K$"
             elif filter_key in ['funding_rate_min', 'funding_rate_max']:
                 display_value = f"{current_value}%"
             elif filter_key == 'min_contract_age_days':
@@ -548,7 +473,7 @@ class FilterPanel:
                     display_value = "1/3"
                 else:
                     display_value = f"{int(current_value)}/4"
-            elif filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'tp3_min', 'tp3_max', 'min_opposite_distance']:
+            elif filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'min_opposite_distance']:
                 # Для ATR значений показываем с одним знаком после запятой
                 display_value = f"{current_value:.1f}{unit}"
             elif unit:
@@ -592,11 +517,11 @@ class FilterPanel:
         keyboard.append([InlineKeyboardButton(f"✏️ {filter_name}", callback_data="noop")])
         
         # Форматирование текущего значения для отображения
-        if filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'sl_tolerance_min', 'sl_tolerance_max', 'max_sl_distance', 'max_ema50_deviation', 'tp1_min', 'tp1_max', 'tp2_min', 'tp2_max', 'tp3_min', 'tp3_max', 'min_opposite_distance']:
+        if filter_key in ['max_ema50_distance', 'pullback_min', 'pullback_max', 'min_opposite_distance']:
             current_display = f"{current_value:.1f}{unit}"
         elif filter_key == 'min_futures_volume':
             current_display = f"{current_value / 1_000_000:.1f}M$"
-        elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
+        elif filter_key in ['min_liquidity']:
             current_display = f"{current_value / 1_000:.0f}K$"
         elif filter_key in ['funding_rate_min', 'funding_rate_max']:
             current_display = f"{current_value}%"
@@ -629,7 +554,7 @@ class FilterPanel:
                     if filter_key == 'min_futures_volume':
                         display_val = f"{val}M$"
                         actual_val = val * 1_000_000
-                    elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
+                    elif filter_key in ['min_liquidity']:
                         display_val = f"{val}K$"
                         actual_val = val * 1_000
                     elif filter_key in ['funding_rate_min', 'funding_rate_max']:
@@ -701,7 +626,6 @@ class FilterPanel:
         # Форматируем значения для отображения (как в категориях)
         min_futures_volume_display = f"{s['min_futures_volume'] / 1_000_000:.1f}M$"
         min_liquidity_display = f"{s['min_liquidity'] / 1_000:.0f}K$"
-        min_sl_liquidity_display = f"{s['min_sl_liquidity'] / 1_000:.0f}K$"
         
         # Форматирование для min_trend_candles
         min_trend_candles_value = s.get('min_trend_candles', 3)
@@ -744,8 +668,7 @@ class FilterPanel:
 📉 *Индикаторы:*
 ├ RSI LONG: ≤{rsi_max_long}
 ├ RSI SHORT: ≥{rsi_min_short}
-├ ADX: {adx_min} - {adx_max}
-└ Мин. RR: {min_rr_ratio}:1
+└ ADX: {adx_min} - {adx_max}
 
 📊 *Тренд и структура:*
 ├ EMA50 дистанция: ≤{max_ema50_distance:.1f} ATR
@@ -772,15 +695,6 @@ class FilterPanel:
 ├ Пила-свечи: ≤{max_saw_candles}/12
 ├ Volume contraction: <{volume_contraction_ratio}x среднего
 └ Паттерн: {pattern_status}
-
-🎯 *SL/TP:*
-├ SL допуск: {sl_tolerance_min:.1f}-{sl_tolerance_max:.1f} ATR
-├ Макс. SL: ≤{max_sl_distance:.1f} ATR
-├ Ликвидность SL: {min_sl_liquidity_display}
-├ Отклонение EMA50: ≤{max_ema50_deviation:.1f} ATR
-├ TP1: {tp1_min:.1f}-{tp1_max:.1f} ATR
-├ TP2: {tp2_min:.1f}-{tp2_max:.1f} ATR
-└ TP3: {tp3_min:.1f}-{tp3_max:.1f} ATR
 
 📋 *ЛОГИЧЕСКИЕ ФИЛЬТРЫ (не настраиваются):*
 
@@ -816,15 +730,14 @@ class FilterPanel:
 ├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
 └ Повторный сигнал возможен только после обновления структуры и нового паттерна
 
-📊 *ВСЕГО ФИЛЬТРОВ: 72*
-├ Настраиваемых: 48
-└ Логических: 24
+📊 *ВСЕГО ФИЛЬТРОВ: 60*
+├ Настраиваемых: 43
+└ Логических: 17
 """.format(
             **s, 
             pattern_status=pattern_status,
             min_futures_volume_display=min_futures_volume_display,
             min_liquidity_display=min_liquidity_display,
-            min_sl_liquidity_display=min_sl_liquidity_display,
             min_trend_candles_display=min_trend_candles_display
         )
         
@@ -975,7 +888,7 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
             # Специальная обработка для некоторых полей
             if filter_key == 'min_futures_volume':
                 value = value * 1_000_000
-            elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
+            elif filter_key in ['min_liquidity']:
                 value = value * 1_000
             elif filter_key in ['funding_rate_min', 'funding_rate_max']:
                 # Значение уже в процентах, оставляем как есть
@@ -987,7 +900,7 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
             # Форматируем значение для отображения
             if filter_key == 'min_futures_volume':
                 display_value = f"{value / 1_000_000:.1f}M$"
-            elif filter_key in ['min_liquidity', 'min_sl_liquidity']:
+            elif filter_key in ['min_liquidity']:
                 display_value = f"{value / 1_000:.0f}K$"
             else:
                 display_value = str(value)
