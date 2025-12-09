@@ -162,7 +162,7 @@ class TelegramBot:
             # Кнопка с реферальной ссылкой XT.com
             keyboard = [
                 [InlineKeyboardButton(
-                    "40% CASHBACK 💸 Official partner XT",
+                    "40% CASHBACK 💸 Partner XT",
                     url="https://www.xt.com/en/accounts/register?ref=TRADINGBOT"
                 )]
             ]
