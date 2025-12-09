@@ -178,19 +178,14 @@ class TelegramBot:
             for attempt in range(max_retries):
                 try:
                     if chart_path and os.path.exists(chart_path):
-                        # Отправляем изображение отдельно (без caption)
                         with open(chart_path, "rb") as photo:
                             await self.bot.send_photo(
                                 chat_id=config.TELEGRAM_CHANNEL_ID,
-                                photo=photo
+                                photo=photo,
+                                caption=message,
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=reply_markup
                             )
-                        # Отправляем текст с кнопкой отдельным сообщением
-                        await self.bot.send_message(
-                            chat_id=config.TELEGRAM_CHANNEL_ID,
-                            text=message,
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=reply_markup
-                        )
                     else:
                         await self.bot.send_message(
                             chat_id=config.TELEGRAM_CHANNEL_ID,
