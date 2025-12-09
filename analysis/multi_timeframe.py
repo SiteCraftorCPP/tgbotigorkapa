@@ -11,8 +11,8 @@ class MultiTimeframeAnalysis:
     """Анализ на нескольких таймфреймах"""
     
     # Настраиваемые параметры (применяются через FilterSettings)
-    TREND_NEUTRAL_THRESHOLD = 25  # Порог нейтральности тренда (score)
-    TREND_STRONG_THRESHOLD = 40  # Порог сильного тренда H1 (score)
+    TREND_NEUTRAL_THRESHOLD = 20  # Порог нейтральности тренда (score)
+    TREND_STRONG_THRESHOLD = 35  # Порог сильного тренда H1 (score)
     
     @staticmethod
     def get_higher_timeframe(current_tf: str) -> str:

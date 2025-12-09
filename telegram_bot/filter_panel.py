@@ -16,78 +16,78 @@ class FilterSettings:
     # Значения по умолчанию
     DEFAULTS = {
         # === ФИЛЬТРЫ РЫНКА ===
-        'top_coins_limit': 200,
-        'min_futures_volume': 3_000_000,
-        'min_volume_60m_ratio': 1.2,  # %
-        'max_spread': 0.18,  # %
-        'max_avg_spread_15m': 0.22,  # %
-        'min_liquidity': 300_000,
-        'funding_rate_min': -0.06,  # %
-        'funding_rate_max': 0.06,  # %
-        'max_oi_change_15m': 18.0,  # %
-        'min_contract_age_days': 20,
-        'atr_min': 0.3,  # %
-        'atr_max': 3.5,  # %
+        'top_coins_limit': 300,
+        'min_futures_volume': 2_000_000,
+        'min_volume_60m_ratio': 1.0,  # %
+        'max_spread': 0.35,  # %
+        'max_avg_spread_15m': 0.30,  # %
+        'min_liquidity': 200_000,
+        'funding_rate_min': -0.08,  # %
+        'funding_rate_max': 0.08,  # %
+        'max_oi_change_15m': 25.0,  # %
+        'min_contract_age_days': 10,
+        'atr_min': 0.8,  # %
+        'atr_max': 5.0,  # %
         'max_atr_deviation': 35,  # %
-        'max_candle_body_gap': 1.8,  # %
-        'max_high_low_gap': 2.5,  # %
+        'max_candle_body_gap': 2.5,  # %
+        'max_high_low_gap': 3.0,  # %
         
         # === BTC/ETH ФИЛЬТРЫ ===
-        'btc_max_move_5m': 1.8,  # %
-        'btc_max_move_15m': 2.8,  # %
-        'btc_max_reversals': 2,
-        'btc_pause_minutes': 20,
-        'btc_strong_move_1h': 3.0,  # %
-        'eth_max_move_15m': 2.5,  # %
+        'btc_max_move_5m': 2.0,  # %
+        'btc_max_move_15m': 3.0,  # %
+        'btc_max_reversals': 3,
+        'btc_pause_minutes': 10,
+        'btc_strong_move_1h': 4.0,  # %
+        'eth_max_move_15m': 3.0,  # %
         
         # === ВРЕМЕННЫЕ ФИЛЬТРЫ ===
-        'time_guard_start': 5,  # минут
-        'time_guard_end': 3,  # минут
-        'min_hourly_volume': 75,  # %
+        'time_guard_start': 0,  # минут
+        'time_guard_end': 0,  # минут
+        'min_hourly_volume': 60,  # %
         
         # === ИНДИКАТОРЫ ===
-        'rsi_max_long': 68,
-        'rsi_min_short': 32,
-        'adx_min': 18,
-        'adx_max': 45,
-        'min_rr_ratio': 1.8,
+        'rsi_max_long': 70,
+        'rsi_min_short': 30,
+        'adx_min': 15,
+        'adx_max': 55,
+        'min_rr_ratio': 1.5,
         
         # === ТРЕНД И СТРУКТУРА ===
-        'max_ema50_distance': 2.0,  # ATR
+        'max_ema50_distance': 3.0,  # ATR
         'pullback_min': 0.2,  # ATR
         'pullback_max': 0.8,  # ATR
         'min_trend_candles': 0.333,  # 1 из 3 свечей (0.333) или N из 4
-        'trend_neutral_threshold': 25,  # Порог нейтральности тренда (score)
-        'trend_strong_threshold': 40,  # Порог сильного тренда H1 (score)
+        'trend_neutral_threshold': 20,  # Порог нейтральности тренда (score)
+        'trend_strong_threshold': 35,  # Порог сильного тренда H1 (score)
         
         # === КАЧЕСТВО СИГНАЛА ===
-        'impulse_body_ratio': 60,  # %
-        'impulse_avg_multiplier': 1.25,
-        'max_dirty_candles': 3,
-        'ema50_slope_min': 7,
-        'max_bid_ask_imbalance': 35,  # %
-        'max_stddev_ratio': 1.25,
-        'max_saw_candles': 3,
+        'impulse_body_ratio': 55,  # %
+        'impulse_avg_multiplier': 1.20,
+        'max_dirty_candles': 4,
+        'ema50_slope_min': 6,
+        'max_bid_ask_imbalance': 40,  # %
+        'max_stddev_ratio': 1.35,
+        'max_saw_candles': 4,
         'signal_volume_multiplier': 1.15,  # Объём импульсной свечи ≥ 1.15× среднего
-        'volume_contraction_ratio': 0.8,  # Откат на пониженном объёме < 80% среднего
+        'volume_contraction_ratio': 0.9,  # Откат на пониженном объёме < 90% среднего
         'pattern_check_enabled': True,  # Включить проверку паттерна
         
         # === УРОВНИ ===
         'min_level_touches': 2,
         'htf_volume_multiplier': 1.3,
-        'min_opposite_distance': 1.4,  # ATR
+        'min_opposite_distance': 1.2,  # ATR
         'breakout_body_ratio': 55,  # %
         
         # === SL/TP ===
-        'sl_tolerance_min': 0.5,  # ATR
-        'sl_tolerance_max': 1.0,  # ATR
-        'max_sl_distance': 2.2,  # ATR
+        'sl_tolerance_min': 0.7,  # ATR
+        'sl_tolerance_max': 1.2,  # ATR
+        'max_sl_distance': 2.4,  # ATR
         'min_sl_liquidity': 90_000,
         'max_ema50_deviation': 2.5,  # ATR
         'tp1_min': 1.5,  # ATR
-        'tp1_max': 2.5,  # ATR
+        'tp1_max': 1.8,  # ATR
         'tp2_min': 3.0,  # ATR
-        'tp2_max': 5.0,  # ATR
+        'tp2_max': 3.5,  # ATR
         'tp3_min': 6.0,  # ATR
         'tp3_max': 9.0,  # ATR
     }
@@ -503,7 +503,7 @@ class FilterPanel:
         # Дополнительные кнопки
         keyboard.append([
             InlineKeyboardButton("📋 Текущие настройки", callback_data="fp_show_all"),
-            InlineKeyboardButton("🔄 Сбросить к текущим", callback_data="fp_reset_confirm")
+            InlineKeyboardButton("🔄 Сбросить к базовым", callback_data="fp_reset_confirm")
         ])
         
         keyboard.append([
@@ -800,17 +800,17 @@ class FilterPanel:
 ├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего)
 ├ Пробой уровня: тело ≥ 55% свечи относительно уровня
 ├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей
-├ SL размещается за последним HL/LH с допуском 0.5–1.0 ATR
-├ SL ≤ 2.2 ATR от точки входа
-├ При ATR% ≥ 3.0% допускается расширение SL до 0.7–0.8 ATR
+├ SL размещается за последним HL/LH с допуском 0.7–1.2 ATR
+├ SL ≤ 2.4 ATR от точки входа
+├ При ATR% ≥ 3.0% допускается расширение SL до 1.2 ATR
 ├ Структура должна оставаться интактной (HH+HL для лонга / LL+LH для шорта)
-├ Минимальный RR сохраняется ≥ 1.8 : 1
+├ Минимальный RR сохраняется ≥ 1.5 : 1
 ├ SL обязателен за последним HL/LH
 ├ Ликвидность в зоне SL ≥ 90 000 USDT (в пределах ±0.5%)
 ├ Отклонение цены от EMA50 ≤ 2.5 ATR
 ├ Правило действует только при полном соблюдении всех остальных условий
-├ TP рассчитывается по структуре: TP1 = 1.5–2.5 ATR, TP2 = 3.0–5.0 ATR, TP3 = 6.0–9.0 ATR
-├ Минимальный RR сигнала ≥ 1.8 : 1
+├ TP рассчитывается по структуре: TP1 = 1.5–1.8 ATR, TP2 = 3.0–3.5 ATR, TP3 = 6.0–9.0 ATR
+├ Минимальный RR сигнала ≥ 1.5 : 1
 ├ Сигнал не подаётся при нарушении структуры в момент формирования
 ├ Сигнал не подаётся если SL попадает в низкую ликвидность (≤ 90k внутри ±0.5%)
 ├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
@@ -883,12 +883,12 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
     if data == "fp_reset_confirm":
         keyboard = [
             [
-                InlineKeyboardButton("✅ Да, обновить", callback_data="fp_reset_do"),
+                InlineKeyboardButton("✅ Да, сбросить", callback_data="fp_reset_do"),
                 InlineKeyboardButton("❌ Отмена", callback_data="fp_main")
             ]
         ]
         await query.edit_message_text(
-            "⚠️ *Обновить значения до текущих?*\n\nНастройки будут перечитаны из БД без отката к дефолту.",
+            "⚠️ *Сбросить к базовым значениям?*\n\nБудут применены и сохранены базовые значения (MEGABOT список).",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.MARKDOWN
         )
@@ -896,9 +896,9 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
     
     # Выполнить сброс к текущим
     if data == "fp_reset_do":
-        FilterSettings.reset_to_current()
+        FilterSettings.reset_all()
         await query.edit_message_text(
-            "✅ *Настройки обновлены!*\n\nВсе фильтры перечитаны из БД и применены.",
+            "✅ *Сброс выполнен!*\n\nБазовые значения применены и сохранены.",
             reply_markup=FilterPanel.get_main_menu(),
             parse_mode=ParseMode.MARKDOWN
         )

@@ -11,6 +11,7 @@ from .languages import t, get_user_lang
 from .filter_panel import FilterPanel, FilterSettings, handle_filter_panel_callback
 from sqlalchemy import func
 from datetime import datetime, timedelta
+import os
 from functools import wraps
 
 def admin_only(func):
@@ -106,6 +107,17 @@ class TelegramBot:
         from utils.logger import logger
         ticker = signal.get('ticker', 'UNKNOWN')
         
+        # Дополнительный барьер: если DeepSeek отклонил — не отправляем
+        ds = signal.get('deepseek')
+        if isinstance(ds, dict) and ds.get('approved') is False:
+            reason = (ds.get('plan') or {}).get('reason') or ds.get('error') or 'Rejected by DeepSeek'
+            logger.info(f"[DEEPSEEK] Block sending {ticker}: {reason}")
+            try:
+                await self.send_admin_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
+            except Exception:
+                pass
+            return False
+        
         try:
             logger.info(f"[TELEGRAM] Preparing to send signal {ticker} to channel...")
             
@@ -141,6 +153,9 @@ class TelegramBot:
             
             logger.info(f"[TELEGRAM] Channel ID: {config.TELEGRAM_CHANNEL_ID}")
             
+            deepseek_result = signal.get('deepseek') or {}
+            chart_path = signal.get('chart_path')
+
             message = self._format_signal_message(signal, lang='en')
             logger.debug(f"[TELEGRAM] Message formatted, length: {len(message)} chars")
             
@@ -162,12 +177,22 @@ class TelegramBot:
             
             for attempt in range(max_retries):
                 try:
-                    await self.bot.send_message(
-                        chat_id=config.TELEGRAM_CHANNEL_ID,
-                        text=message,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=reply_markup
-                    )
+                    if chart_path and os.path.exists(chart_path):
+                        with open(chart_path, "rb") as photo:
+                            await self.bot.send_photo(
+                                chat_id=config.TELEGRAM_CHANNEL_ID,
+                                photo=photo,
+                                caption=message,
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=reply_markup
+                            )
+                    else:
+                        await self.bot.send_message(
+                            chat_id=config.TELEGRAM_CHANNEL_ID,
+                            text=message,
+                            parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=reply_markup
+                        )
                     logger.info(f"[TELEGRAM] ✅ Signal {ticker} successfully sent to channel!")
                     return True
                 except RetryAfter as e:
@@ -277,18 +302,35 @@ class TelegramBot:
             return f"{price:.8f}".rstrip('0').rstrip('.')
     
     def _format_signal_message(self, signal: dict, lang: str = 'en') -> str:
-        """Форматирование упрощенного сигнала"""
+        """Форматирование сигнала с маркерами риска/уверенности DeepSeek"""
         
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
+        direction = signal['direction']
         
-        # Расчёт потенциальной прибыли для TP1, TP2, TP3 (TP4 убран)
-        entry = signal['entry_price']
-        tp1 = signal['take_profit_1']
-        tp2 = signal['take_profit_2']
-        tp3 = signal['take_profit_3']
-        stop = signal['stop_loss']
+        # DeepSeek план и дополнительные поля
+        ds_plan = (signal.get('deepseek') or {}).get('plan') or {}
         
-        if signal['direction'] == 'LONG':
+        # Уровни из плана (fallback на сгенерированные)
+        entry_zone = ds_plan.get('entry_zone')
+        if isinstance(entry_zone, dict):
+            entry = float(entry_zone.get('from') or entry_zone.get('to') or signal['entry_price'])
+            if entry_zone.get('from') and entry_zone.get('to'):
+                try:
+                    entry = (float(entry_zone['from']) + float(entry_zone['to'])) / 2
+                except Exception:
+                    pass
+        elif entry_zone is not None:
+            entry = float(entry_zone)
+        else:
+            entry = signal['entry_price']
+        
+        stop = float(ds_plan.get('sl') or signal['stop_loss'])
+        tp1 = float(ds_plan.get('tp1') or signal['take_profit_1'])
+        tp2 = float(ds_plan.get('tp2') or signal['take_profit_2'])
+        tp3 = float(ds_plan.get('tp3') or signal['take_profit_3'])
+        
+        # Проценты без учёта плеча (как в шаблоне)
+        if direction == 'LONG':
             profit_tp1 = ((tp1 - entry) / entry) * 100
             profit_tp2 = ((tp2 - entry) / entry) * 100
             profit_tp3 = ((tp3 - entry) / entry) * 100
@@ -297,7 +339,45 @@ class TelegramBot:
             profit_tp1 = ((entry - tp1) / entry) * 100
             profit_tp2 = ((entry - tp2) / entry) * 100
             profit_tp3 = ((entry - tp3) / entry) * 100
-            risk_percent = ((stop - entry) / entry) * 100
+            risk_percent = ((stop - entry) / entry) * 100 * -1  # отрицательное для SHORT
+        
+        def _fmt_pct(val: float) -> str:
+            sign = "+" if val >= 0 else ""
+            return f"{sign}{val:.2f}%"
+        
+        # Risk level → emoji/text
+        risk_level = (ds_plan.get('risk_level') or "medium").lower()
+        if risk_level == "low":
+            risk_emoji, risk_text = "🟢", "Low"
+        elif risk_level == "high":
+            risk_emoji, risk_text = "🔴", "High"
+        else:
+            risk_emoji, risk_text = "🟡", "Medium"
+        
+        # Confidence (0-100), допускаем 0-1
+        raw_conf = ds_plan.get('confidence')
+        if raw_conf is None:
+            confidence = 0
+        else:
+            try:
+                val = float(raw_conf)
+                confidence = int(val * 100) if val <= 1 else int(val)
+            except Exception:
+                confidence = 0
+        confidence = max(0, min(100, confidence))
+        if confidence <= 55:
+            conf_emoji = "🔴"
+        elif confidence <= 75:
+            conf_emoji = "🟡"
+        else:
+            conf_emoji = "🟢"
+        
+        setup_type = ds_plan.get('setup_type') or "N/A"
+        ctx = ds_plan.get('context_summary') or {}
+        trend_comment = ctx.get('trend_comment') or "—"
+        news_comment = ctx.get('news_comment') or "—"
+        btc_comment = ctx.get('btc_comment') or "—"
+        risk_comment = ctx.get('risk_comment') or "—"
         
         # Форматирование цен с учётом их величины
         entry_str = self._format_price(entry)
@@ -308,17 +388,27 @@ class TelegramBot:
         
         # Сигналы всегда на английском для канала
         message = f"""
-📊 *{signal['ticker']}* | {signal['direction']}
+📊 *{signal['ticker']}* | {direction}
+⏱ TF: {signal.get('timeframe') or '—'}
+⚡️ Leverage: {(signal.get('leverage') or '—')}x
 
 💰 Entry: {entry_str}
-🛑 Stop: {stop_str} (-{risk_percent:.2f}%)
+🛑 Stop: {stop_str} ({_fmt_pct(risk_percent)})
 
 🎯 Take Profit
-├ TP1: {tp1_str} (+{profit_tp1:.1f}%)
-├ TP2: {tp2_str} (+{profit_tp2:.1f}%)
-└ TP3: {tp3_str} (+{profit_tp3:.1f}%)
+├ TP1: {tp1_str} ({_fmt_pct(profit_tp1)})
+├ TP2: {tp2_str} ({_fmt_pct(profit_tp2)})
+└ TP3: {tp3_str} ({_fmt_pct(profit_tp3)})
 
-⚠️ After TP1 - move SL to breakeven!
+📌 Risk: {risk_emoji} {risk_text}
+📌 Confidence: {conf_emoji} {confidence}/100
+📌 Setup: {setup_type}
+
+🧠 Context:
+• Trend: {trend_comment}
+• Sentiment: {news_comment}
+• BTC: {btc_comment}
+• Risks: {risk_comment}
 """
         return message.strip()
     

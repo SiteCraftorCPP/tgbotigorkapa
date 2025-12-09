@@ -78,9 +78,6 @@ class SignalCancellation:
             
             last = ta.df.iloc[-1]
             
-            if len(ta.df) < 2:
-                return False
-            
             if direction == 'LONG':
                 # Для лонга: цена упала ниже EMA200
                 if last['close'] < last['ema_200']:
@@ -121,8 +118,8 @@ class SignalCancellation:
                 return False
             
             # Проверяем последнюю свечу
-            if len(df) == 0:
-                return False, None
+            if len(df) < 1:
+                return False
             
             last = df.iloc[-1]
             body = abs(last['close'] - last['open'])

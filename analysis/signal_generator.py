@@ -15,29 +15,29 @@ class SignalGenerator:
     """Генератор торговых сигналов с полной системой фильтрации"""
     
     # Минимальный RR
-    MIN_RR_RATIO = 1.8  # ≥ 1.8:1
+    MIN_RR_RATIO = 1.5  # ≥ 1.5:1
     
     # SL параметры
-    SL_TOLERANCE_MIN_ATR = 0.5  # SL допуск минимум 0.5 ATR
-    SL_TOLERANCE_MAX_ATR = 1.0  # SL допуск максимум 1.0 ATR
-    MAX_SL_DISTANCE_ATR = 2.2  # SL ≤ 2.2 ATR от входа
+    SL_TOLERANCE_MIN_ATR = 0.7  # SL допуск минимум 0.7 ATR
+    SL_TOLERANCE_MAX_ATR = 1.2  # SL допуск максимум 1.2 ATR
+    MAX_SL_DISTANCE_ATR = 2.4  # SL ≤ 2.4 ATR от входа
     HIGH_VOLATILITY_THRESHOLD = 3.0  # ATR% ≥ 3.0% для расширения SL
     HIGH_VOLATILITY_SL_EXTENSION = 0.8  # При высокой волатильности до 0.8 ATR
     
     # TP параметры
     TP1_MIN_ATR = 1.5
-    TP1_MAX_ATR = 2.5
+    TP1_MAX_ATR = 1.8
     TP2_MIN_ATR = 3.0
-    TP2_MAX_ATR = 5.0
+    TP2_MAX_ATR = 3.5
     TP3_MIN_ATR = 6.0
     TP3_MAX_ATR = 9.0
     
     # Тренд и структура
-    MAX_EMA50_DISTANCE_ATR = 2.0  # Расстояние от EMA50 ≤ 2 ATR
+    MAX_EMA50_DISTANCE_ATR = 3.0  # Расстояние от EMA50 ≤ 3 ATR
     MAX_EMA50_DEVIATION_ATR = 2.5  # Отклонение от EMA50 ≤ 2.5 ATR
-    PULLBACK_MIN_ATR = 0.3
-    PULLBACK_MAX_ATR = 0.6
-    MIN_TREND_CANDLES = 3  # Минимум 3 из 4 свечей (или 0.333 для 1 из 3)
+    PULLBACK_MIN_ATR = 0.2
+    PULLBACK_MAX_ATR = 0.8
+    MIN_TREND_CANDLES = 0.333  # Минимум 1 из 3 свечей
     
     # Свеча сигнала
     SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
