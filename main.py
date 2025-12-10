@@ -202,19 +202,10 @@ class CryptoSignalBot:
                     log_error(f"Exception in {pair} {tf}: {str(result)}", "analyze_market_parallel")
                     continue
                     
-                # ДЕБАГ: логируем все результаты
-                if result:
-                    status = result.get('status', 'NO_STATUS')
-                    pair = result.get('pair', 'NO_PAIR')
-                    tf = result.get('timeframe', 'NO_TF')
-                    if status == 'signal':
-                        log_info(f"[DEBUG] ✅ Found signal in batch: {pair} {tf}")
-                    else:
-                        log_info(f"[DEBUG] Result: {pair} {tf} status={status}")
-                    
+                # Логируем только сигналы, остальное засоряет логи
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
-                    log_info(f"[DEBUG] Processing signal {signal.get('ticker')} {signal.get('timeframe')} - calling _save_and_send_signal")
+                    log_info(f"✅ Signal found: {signal.get('ticker')} {signal.get('timeframe')} - processing...")
                     try:
                         await self._save_and_send_signal(signal)
                         signals_found += 1
