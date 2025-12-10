@@ -83,7 +83,39 @@ class TopCoinsService:
         markets = client.exchange.markets or {}
         
         # Получаем тикеры (может быть тяжёлый запрос, но нужен для объёмов)
-        tickers = await client._run_in_executor(client.exchange.fetch_tickers)
+        tickers_raw = await client._run_in_executor(client.exchange.fetch_tickers)
+        
+        # Нормализуем тикеры в формат SYMBOL/QUOTE (XT возвращает без слеша, типа ARBUSDC)
+        tickers: Dict[str, dict] = {}
+        for sym, t in tickers_raw.items():
+            if '/' in sym:
+                norm = sym
+            elif sym.endswith('USDT'):
+                norm = f"{sym[:-4]}/USDT"
+            elif sym.endswith('USDC'):
+                norm = f"{sym[:-4]}/USDC"
+            else:
+                continue
+            tickers[norm] = t or {}
+        
+        # Если markets пустой (как в логах), строим минимальные market записи из тикеров USDT
+        if not markets:
+            markets = {}
+            for symbol in tickers.keys():
+                if not symbol.endswith('/USDT'):
+                    continue
+                base = symbol.split('/')[0]
+                markets[symbol] = {
+                    'symbol': symbol,
+                    'base': base,
+                    'quote': 'USDT',
+                    'type': 'future',
+                    'swap': True,
+                    'contract': True,
+                    'active': True,
+                }
+            # сохраняем в клиент, чтобы downstream код видел markets
+            client.exchange.markets = markets
         
         pairs: List[Tuple[str, float]] = []
         
