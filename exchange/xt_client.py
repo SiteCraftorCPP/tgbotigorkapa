@@ -25,16 +25,21 @@ class XTExchange(ccxt.binance):
         
         # Переопределяем базовые URL
         self.urls['api'] = {
+            # XT фьючерсы
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
+            # Совместимость с binance-наследием ccxt
+            'fapiPublic': 'https://fapi.xt.com/fapi/v1',
+            'fapiPrivate': 'https://fapi.xt.com/fapi/v1',
         }
-        # Во избежание ошибок sandbox/testnet — задаем test такие же, как prod
-        self.urls['test'] = self.urls['api']
+        # Во избежание ошибок sandbox/testnet — задаем test такие же, как prod (включая fapi*)
+        self.urls['test'] = {
+            'public': self.urls['api']['public'],
+            'private': self.urls['api']['private'],
+            'fapiPublic': self.urls['api']['fapiPublic'],
+            'fapiPrivate': self.urls['api']['fapiPrivate'],
+        }
         self.id = 'xt'
-        
-        # Убираем testnet URLs
-        if 'test' in self.urls:
-            del self.urls['test']
         
         # Убираем sapi URLs - они не поддерживаются XT.com
         if 'sapi' in self.urls.get('api', {}):
