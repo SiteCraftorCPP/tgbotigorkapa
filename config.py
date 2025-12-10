@@ -11,6 +11,7 @@ XT_API_SECRET = os.getenv('XT_API_SECRET')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 TELEGRAM_ADMIN_CHANNEL_ID = os.getenv('TELEGRAM_ADMIN_CHANNEL_ID')  # Опционально, если не указан - используется основной канал
+TELEGRAM_REJECTED_CHANNEL_ID = os.getenv('TELEGRAM_REJECTED_CHANNEL_ID')  # Канал для отклонённых сигналов (DeepSeek rejected)
 
 # Admins (через запятую, например: "123456789,987654321")
 TELEGRAM_ADMIN_IDS = os.getenv('TELEGRAM_ADMIN_IDS', '').split(',') if os.getenv('TELEGRAM_ADMIN_IDS') else []

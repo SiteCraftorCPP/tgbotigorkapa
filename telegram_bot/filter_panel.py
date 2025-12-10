@@ -17,28 +17,27 @@ class FilterSettings:
     DEFAULTS = {
         # === ФИЛЬТРЫ РЫНКА ===
         'top_coins_limit': 300,
-        'min_futures_volume': 2_000_000,
-        'min_volume_60m_ratio': 1.0,  # %
+        'min_futures_volume': 3_000_000,
+        'min_volume_60m_ratio': 1.2,  # %
         'max_spread': 0.35,  # %
         'max_avg_spread_15m': 0.30,  # %
-        'min_liquidity': 200_000,
+        'min_liquidity': 300_000,
         'funding_rate_min': -0.08,  # %
         'funding_rate_max': 0.08,  # %
         'max_oi_change_15m': 25.0,  # %
         'min_contract_age_days': 10,
-        'atr_min': 0.8,  # %
+        'atr_min': 1.0,  # %
         'atr_max': 5.0,  # %
         'max_atr_deviation': 35,  # %
         'max_candle_body_gap': 2.5,  # %
         'max_high_low_gap': 3.0,  # %
         
         # === BTC/ETH ФИЛЬТРЫ ===
-        'btc_max_move_5m': 2.0,  # %
-        'btc_max_move_15m': 3.0,  # %
-        'btc_max_reversals': 3,
+        'btc_max_move_1h': 3.0,  # %
+        'btc_max_reversals': 1,
         'btc_pause_minutes': 10,
-        'btc_strong_move_1h': 4.0,  # %
-        'eth_max_move_15m': 3.0,  # %
+        'btc_strong_move_1h': 3.0,  # %
+        'eth_max_move_1h': 3.0,  # %
         
         # === ВРЕМЕННЫЕ ФИЛЬТРЫ ===
         'time_guard_start': 0,  # минут
@@ -54,7 +53,7 @@ class FilterSettings:
         
         # === ТРЕНД И СТРУКТУРА ===
         'max_ema50_distance': 3.0,  # ATR
-        'pullback_min': 0.1,  # ATR
+        'pullback_min': 0.3,  # ATR
         'pullback_max': 1.0,  # ATR
         'min_trend_candles': 0.333,  # 1 из 3 свечей (0.333) или N из 4
         'trend_neutral_threshold': 20,  # Порог нейтральности тренда (score)
@@ -75,7 +74,7 @@ class FilterSettings:
         # === УРОВНИ ===
         'min_level_touches': 2,
         'htf_volume_multiplier': 1.2,
-        'min_opposite_distance': 1.2,  # ATR
+        'min_opposite_distance': 1.8,  # ATR
         'breakout_body_ratio': 50,  # %
     }
     
@@ -120,7 +119,12 @@ class FilterSettings:
     @classmethod
     def reset_all(cls):
         """Сбросить все настройки к значениям по умолчанию"""
-        cls._settings = cls.DEFAULTS.copy()
+        # Берём актуальные значения из БД (после миграций) как базовый пресет
+        baseline = cls.get_all(force_reload=True).copy()
+        # Обновляем DEFAULTS текущим базовым пресетом, чтобы кнопка "сброс"
+        # возвращала именно к сохранённым актуальным значениям
+        cls.DEFAULTS = baseline.copy()
+        cls._settings = baseline
         cls._save_to_db()
         cls._apply_to_filters()
     
@@ -167,6 +171,68 @@ class FilterSettings:
         чтобы текущие настройки соответствовали обновлённым лимитам.
         """
         changed = False
+        
+        # MIGRATION: ATR мин фиксируем на 1.0% (все старые значения приводим к 1.0)
+        atr_min = cls._settings.get('atr_min')
+        if atr_min != 1.0:
+            cls._settings['atr_min'] = 1.0
+            changed = True
+        
+        # MIGRATION: обновляем ключевые пороги до новых базовых требований
+        # Миграции с целевыми значениями (жёстко выставляем, если отличаются)
+        target_values = {
+            # Рынок
+            'min_futures_volume': 3_000_000,
+            'min_volume_60m_ratio': 1.2,
+            'min_liquidity': 300_000,
+            'max_spread': 0.35,
+            'max_avg_spread_15m': 0.30,
+            'funding_rate_min': -0.08,
+            'funding_rate_max': 0.08,
+            'max_oi_change_15m': 25.0,
+            'min_contract_age_days': 10,
+            # Время
+            'time_guard_start': 0,
+            'time_guard_end': 0,
+            'min_hourly_volume': 60,
+            # ATR/структура
+            'max_ema50_distance': 3.0,
+            'pullback_min': 0.3,
+            'min_opposite_distance': 1.8,
+            'max_candle_body_gap': 2.5,
+            'max_high_low_gap': 3.0,
+            'trend_neutral_threshold': 20,
+            'trend_strong_threshold': 35,
+            # Уровни
+            'htf_volume_multiplier': 1.2,
+            'breakout_body_ratio': 50,
+            # Индикаторы
+            'rsi_max_long': 70,
+            'rsi_min_short': 30,
+            'adx_min': 15,
+            'adx_max': 55,
+            # BTC/ETH
+            'btc_strong_move_1h': 3.0,
+            'btc_max_move_1h': 3.0,
+            'btc_max_reversals': 1,
+            'btc_pause_minutes': 10,
+            'eth_max_move_1h': 3.0,
+            # Качество
+            'impulse_body_ratio': 55,
+            'impulse_avg_multiplier': 1.20,
+            'max_dirty_candles': 4,
+            'ema50_slope_min': 6,
+            'max_bid_ask_imbalance': 40,
+            'max_stddev_ratio': 1.35,
+            'max_saw_candles': 4,
+            'volume_contraction_ratio': 0.9,
+            'pattern_check_enabled': True,
+        }
+        for key, target in target_values.items():
+            current = cls._settings.get(key)
+            if current is None or current != target:
+                cls._settings[key] = target
+                changed = True
         
         return changed
     
@@ -224,12 +290,11 @@ class FilterSettings:
             MarketFilters.MIN_CONTRACT_AGE_DAYS = s['min_contract_age_days']
             
             # BTC/ETH Filters
-            MarketFilters.BTC_MAX_MOVE_5M = s['btc_max_move_5m']
-            MarketFilters.BTC_MAX_MOVE_15M = s['btc_max_move_15m']
+            MarketFilters.BTC_MAX_MOVE_1H = s['btc_max_move_1h']
             MarketFilters.BTC_MAX_REVERSALS_30M = s['btc_max_reversals']
             MarketFilters.BTC_PAUSE_MINUTES = s['btc_pause_minutes']
             MarketFilters.BTC_STRONG_MOVE_1H = s['btc_strong_move_1h']
-            MarketFilters.ETH_MAX_MOVE_15M = s['eth_max_move_15m']
+            MarketFilters.ETH_MAX_MOVE_1H = s['eth_max_move_1h']
             
             # Time Filters
             MarketFilters.TIME_GUARD_START_MINUTES = s['time_guard_start']
@@ -326,7 +391,7 @@ class FilterPanel:
             'name': '📈 ATR волатильность',
             'emoji': '📈',
             'filters': [
-                ('atr_min', 'ATR мин', '%', [0.1, 0.2, 0.3, 0.5, 0.8]),
+                ('atr_min', 'ATR мин', '%', [1.0, 1.2, 1.5, 2.0, 2.5]),
                 ('atr_max', 'ATR макс', '%', [2.0, 2.5, 3.0, 3.5, 5.0]),
                 ('max_atr_deviation', 'Отклонение ATR', '%', [20, 25, 30, 35, 50]),
                 ('max_candle_body_gap', 'Разрыв свечи', '%', [1.0, 1.5, 1.8, 2.5, 3.0]),
@@ -337,12 +402,11 @@ class FilterPanel:
             'name': '₿ BTC/ETH фильтры',
             'emoji': '₿',
             'filters': [
-                ('btc_max_move_5m', 'BTC 5m', '%', [1.0, 1.5, 1.8, 2.0, 2.5]),
-                ('btc_max_move_15m', 'BTC 15m', '%', [2.0, 2.5, 2.8, 3.0, 4.0]),
-                ('btc_max_reversals', 'BTC развороты', '', [1, 2, 3, 4, 5]),
-                ('btc_pause_minutes', 'Пауза BTC', 'мин', [10, 15, 20, 30, 60]),
-                ('btc_strong_move_1h', 'BTC сильное движение 1h', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
-                ('eth_max_move_15m', 'ETH 15m', '%', [1.5, 2.0, 2.5, 3.0, 4.0]),
+                ('btc_max_move_1h', 'BTC 1h движение', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
+                ('btc_max_reversals', 'BTC 1h развороты', '', [1, 2, 3]),
+                ('btc_pause_minutes', 'Пауза BTC (1h импульс)', 'мин', [10, 15, 20, 30, 60]),
+                ('btc_strong_move_1h', 'BTC импульс 1h порог', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
+                ('eth_max_move_1h', 'ETH 1h движение', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
             ]
         },
         'time': {
@@ -369,8 +433,8 @@ class FilterPanel:
             'emoji': '📊',
             'filters': [
                 ('max_ema50_distance', 'EMA50 дистанция', ' ATR', [1.5, 2.0, 2.5, 3.0, 4.0, 5.0]),
-                ('pullback_min', 'Pullback мин', ' ATR', [0.1, 0.2, 0.3, 0.4, 0.5]),
-                ('pullback_max', 'Pullback макс', ' ATR', [0.5, 0.6, 0.8, 1.0, 1.5]),
+                ('pullback_min', 'Pullback мин', ' ATR', [0.3, 0.4, 0.5, 0.6, 0.8]),
+                ('pullback_max', 'Pullback макс', ' ATR', [0.8, 0.9, 1.0, 1.1, 1.2]),
                 ('min_trend_candles', 'Мин. тренд свечей', '/4', [0.333, 1, 2, 3, 4]),
                 ('trend_neutral_threshold', 'Порог нейтральности', ' score', [15, 20, 25, 30, 35]),
                 ('trend_strong_threshold', 'Порог сильного тренда', ' score', [30, 35, 40, 45, 50]),
@@ -397,7 +461,7 @@ class FilterPanel:
             'filters': [
                 ('min_level_touches', 'Мин. касания', '', [1, 2, 3, 4, 5]),
                 ('htf_volume_multiplier', 'HTF объём', 'x', [1.1, 1.2, 1.3, 1.5, 2.0]),
-                ('min_opposite_distance', 'До уровня', 'ATR', [1.0, 1.2, 1.4, 1.6, 2.0]),
+                ('min_opposite_distance', 'До уровня', 'ATR', [1.2, 1.4, 1.6, 1.8, 2.0]),
                 ('breakout_body_ratio', 'Пробой тело', '%', [45, 50, 55, 60, 70]),
             ]
         },
@@ -654,11 +718,12 @@ class FilterPanel:
 └ Разрывы: ≤{max_candle_body_gap}% / {max_high_low_gap}%
 
 ₿ *BTC/ETH фильтры:*
-├ BTC 5m/15m: ≤{btc_max_move_5m}% / {btc_max_move_15m}%
-├ BTC развороты: ≤{btc_max_reversals}
-├ Пауза BTC: {btc_pause_minutes} мин
-├ BTC сильное движение 1h: {btc_strong_move_1h}%
-└ ETH 15m: ≤{eth_max_move_15m}%
+├ BTC 1h движение: ≤{btc_max_move_1h}%
+├ BTC 1h импульс против сигнала: запрещён
+├ BTC 1h разворотные паттерны: ≤{btc_max_reversals} (мягкая проверка)
+├ BTC состояние: StdDev ≤ 1.4× (не фаза высокой волатильности)
+├ Пауза после резкого движения BTC (1h): {btc_pause_minutes} мин
+└ ETH 1h движение: ≤{eth_max_move_1h}%
 
 ⏰ *Временные:*
 ├ Начало часа: {time_guard_start} мин
@@ -703,35 +768,27 @@ class FilterPanel:
 ├ Для лонга: HH или HL желательны (мягкая проверка)
 └ Для шорта: LL или LH желательны (мягкая проверка)
 
-🎯 *Сигнал • Вход • SL • TP:*
+🎯 *Сигнал • Вход:*
 ├ Сигнал формируется только при полной валидности всех фильтров
 ├ Тип сигнала: лонг/шорт строго по направлению тренда и структуры
 ├ Сигнал подаётся только после закрытия сигнальной свечи
 ├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей
 ├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта)
-├ Pullback перед сигналом в диапазоне 0.2–0.8 ATR
+├ Минимальная дистанция между HL и предыдущим HL ≥ 1.0 ATR
+├ Минимальная дистанция между LH и предыдущим LH ≥ 1.0 ATR
+├ Pullback перед сигналом в диапазоне 0.3–1.0 ATR
 ├ EMA50 направлена в сторону сигнала; отклонение ≤ 2.5 ATR
 ├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего)
 ├ Пробой уровня: тело ≥ 55% свечи относительно уровня
 ├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей
-├ SL размещается за последним HL/LH с допуском 0.7–1.2 ATR
-├ SL ≤ 2.4 ATR от точки входа
-├ При ATR% ≥ 3.0% допускается расширение SL до 1.2 ATR
 ├ Структура должна оставаться интактной (HH+HL для лонга / LL+LH для шорта)
-├ Минимальный RR сохраняется ≥ 1.5 : 1
-├ SL обязателен за последним HL/LH
-├ Ликвидность в зоне SL ≥ 90 000 USDT (в пределах ±0.5%)
-├ Отклонение цены от EMA50 ≤ 2.5 ATR
-├ Правило действует только при полном соблюдении всех остальных условий
-├ TP рассчитывается по структуре: TP1 = 1.5–1.8 ATR, TP2 = 3.0–3.5 ATR, TP3 = 6.0–9.0 ATR
-├ Минимальный RR сигнала ≥ 1.5 : 1
 ├ Сигнал не подаётся при нарушении структуры в момент формирования
-├ Сигнал не подаётся если SL попадает в низкую ликвидность (≤ 90k внутри ±0.5%)
+├ Сигнал не подаётся, если область за ключевым уровнем по ликвидности заведомо "дырявая" (низкая глубина/объём по внутренним метрикам MEGABOT)
 ├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
 └ Повторный сигнал возможен только после обновления структуры и нового паттерна
 
-📊 *ВСЕГО ФИЛЬТРОВ: 60*
-├ Настраиваемых: 43
+📊 *ВСЕГО ФИЛЬТРОВ: 63*
+├ Настраиваемых: 46
 └ Логических: 17
 """.format(
             **s, 

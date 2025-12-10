@@ -113,7 +113,7 @@ class TelegramBot:
             reason = (ds.get('plan') or {}).get('reason') or ds.get('error') or 'Rejected by DeepSeek'
             logger.info(f"[DEEPSEEK] Block sending {ticker}: {reason}")
             try:
-                await self.send_admin_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
+                await self.send_rejected_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
             except Exception:
                 pass
             return False
@@ -285,6 +285,24 @@ class TelegramBot:
             )
         except Exception as e:
             print(f"[ERROR] Failed to send admin message: {e}")
+
+    async def send_rejected_message(self, message: str):
+        """
+        Отправка сообщения в канал отклонённых сигналов.
+        Если не указан TELEGRAM_REJECTED_CHANNEL_ID — отправляем в админ-канал (но не в основной).
+        """
+        target_chat = config.TELEGRAM_REJECTED_CHANNEL_ID or config.TELEGRAM_ADMIN_CHANNEL_ID
+        if not target_chat:
+            # Если нет ни reject, ни admin канала — не отправляем, чтобы не засорять основной
+            return
+        try:
+            await self.bot.send_message(
+                chat_id=target_chat,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to send rejected message: {e}")
     
     def _format_price(self, price: float) -> str:
         """Умное форматирование цены в зависимости от её величины"""

@@ -26,21 +26,21 @@ class MarketFilters:
     TOP_COINS_LIMIT = 300  # топ-300
     
     # Объём фьючерсов 24h
-    MIN_FUTURES_VOLUME_USDT = 2_000_000  # ≥ 2,000,000 USDT
+    MIN_FUTURES_VOLUME_USDT = 3_000_000  # ≥ 3,000,000 USDT
     
     # Объём 60m относительно 24h
-    MIN_VOLUME_60M_RATIO = 0.010  # ≥ 1.0% от 24h
+    MIN_VOLUME_60M_RATIO = 0.012  # ≥ 1.2% от 24h
     
     # Спред
     MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
     MAX_AVG_SPREAD_15M_PERCENT = 0.30  # Средний спред 15m ≤ 0.30%
     
     # Ликвидность
-    MIN_LIQUIDITY_USDT = 200_000  # ≥ 200,000 USDT в пределах ±0.5%
+    MIN_LIQUIDITY_USDT = 300_000  # ≥ 300,000 USDT в пределах ±0.5%
     LIQUIDITY_PRICE_RANGE = 0.005  # ±0.5%
     
     # ATR волатильность
-    ATR_MIN_PERCENT = 0.8  # ≥ 0.8%
+    ATR_MIN_PERCENT = 1.0  # ≥ 1.0%
     ATR_MAX_PERCENT = 5.0  # ≤ 5.0%
     MAX_ATR_DEVIATION = 35.0  # Отклонение ATR ≤ 35%
     
@@ -63,13 +63,12 @@ class MarketFilters:
     # BTC/ETH ФИЛЬТРЫ
     # ========================================================================
     
-    BTC_MAX_MOVE_5M = 2.0  # BTC движение за 5 минут ≤ 2.0%
-    BTC_MAX_MOVE_15M = 3.0  # BTC движение за 15 минут ≤ 3.0%
-    BTC_MAX_REVERSALS_30M = 3  # BTC разворотов > 0.7% за 30 минут ≤ 3
+    BTC_MAX_MOVE_1H = 3.0  # BTC движение за 1 час ≤ 3.0%
+    BTC_MAX_REVERSALS_30M = 1  # BTC разворотов > 0.7% за 30 минут ≤ 1 (мягкая проверка)
     BTC_REVERSAL_THRESHOLD = 0.7  # Порог разворота 0.7%
-    BTC_PAUSE_MINUTES = 10  # Пауза после триггера BTC: 10 минут
-    BTC_STRONG_MOVE_1H = 4.0  # Если BTC ±4% за 1 час - только по направлению BTC
-    ETH_MAX_MOVE_15M = 3.0  # ETH движение за 15 минут ≤ 3.0%
+    BTC_PAUSE_MINUTES = 10  # Пауза после импульса BTC 1h: 10 минут
+    BTC_STRONG_MOVE_1H = 3.0  # При импульсе ≥3% запрещаем вход против направления
+    ETH_MAX_MOVE_1H = 3.0  # ETH движение за 1 час ≤ 3.0%
     
     # ========================================================================
     # ВРЕМЕННЫЕ ФИЛЬТРЫ
@@ -94,7 +93,7 @@ class MarketFilters:
     # ========================================================================
     
     MAX_EMA50_DISTANCE_ATR = 3.0  # Расстояние от EMA50 ≤ 3 ATR
-    PULLBACK_MIN_ATR = 0.1  # Pullback минимум 0.1 ATR
+    PULLBACK_MIN_ATR = 0.3  # Pullback минимум 0.3 ATR
     PULLBACK_MAX_ATR = 1.0  # Pullback максимум 1.0 ATR
     MIN_TREND_CANDLES = 0.333  # Минимум 1 из 3 свечей в направлении
     
@@ -120,7 +119,7 @@ class MarketFilters:
     MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
     MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
     HTF_VOLUME_MULTIPLIER = 1.2  # HTF: объём ≥ 1.2× среднего
-    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.2  # Дистанция до противоположного уровня ≥ 1.2 ATR
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.8  # Дистанция до противоположного уровня ≥ 1.8 ATR
     BREAKOUT_BODY_RATIO = 0.50  # Свеча пробоя: тело ≥ 50% выше/ниже уровня
     
     # ========================================================================
@@ -340,12 +339,11 @@ class MarketFilters:
     async def check_btc_eth_filters(client: XTClient, direction: str = None) -> Dict:
         """
         BTC/ETH фильтры:
-        - BTC движение за 5 минут ≤ 2.0%
-        - BTC движение за 15 минут ≤ 3.0%
-        - BTC разворотов > 0.7% за 30 минут ≤ 3
-        - Пауза после триггера BTC: 10 минут
-        - Если BTC ±4% за 1 час — сигналы только по направлению BTC
-        - ETH движение за 15 минут ≤ 3.0%
+        - BTC движение за 1 час ≤ 3.0%
+        - BTC разворотов > 0.7% за 30 минут ≤ 1 (мягкая проверка)
+        - Пауза после импульса BTC 1h: 10 минут
+        - При импульсе BTC ≥3% запрещаем вход против направления
+        - ETH движение за 1 час ≤ 3.0%
         """
         from utils.cache import btc_cache
         
@@ -366,36 +364,6 @@ class MarketFilters:
                 result['reason'] = "BTC data unavailable, filter skipped"
                 return result
             
-            # BTC движение за 5 минут
-            if len(btc_df) >= 5:
-                recent_5m = btc_df.tail(5)
-                if not recent_5m.empty and len(recent_5m) >= 1:
-                    price_5m_ago = recent_5m.iloc[0]['open']
-                    current_price = recent_5m.iloc[-1]['close']
-                    
-                    if price_5m_ago > 0:
-                        btc_move_5m = abs((current_price - price_5m_ago) / price_5m_ago) * 100
-                        
-                        if btc_move_5m > MarketFilters.BTC_MAX_MOVE_5M:
-                            MarketFilters._set_btc_pause()
-                            result['reason'] = f"BTC moved {btc_move_5m:.2f}% in 5min > {MarketFilters.BTC_MAX_MOVE_5M}%"
-                            return result
-            
-            # BTC движение за 15 минут
-            if len(btc_df) >= 15:
-                recent_15m = btc_df.tail(15)
-                if not recent_15m.empty and len(recent_15m) >= 1:
-                    price_15m_ago = recent_15m.iloc[0]['open']
-                    current_price = recent_15m.iloc[-1]['close']
-                    
-                    if price_15m_ago > 0:
-                        btc_move_15m = abs((current_price - price_15m_ago) / price_15m_ago) * 100
-                        
-                        if btc_move_15m > MarketFilters.BTC_MAX_MOVE_15M:
-                            MarketFilters._set_btc_pause()
-                            result['reason'] = f"BTC moved {btc_move_15m:.2f}% in 15min > {MarketFilters.BTC_MAX_MOVE_15M}%"
-                            return result
-            
             # BTC разворотов за 30 минут
             if len(btc_df) >= 30:
                 recent_30m = btc_df.tail(30)
@@ -405,8 +373,8 @@ class MarketFilters:
                     result['reason'] = f"BTC reversals {reversals} > {MarketFilters.BTC_MAX_REVERSALS_30M} in 30min"
                     return result
             
-            # BTC сильное движение за 1 час
-            if len(btc_df) >= 60 and direction:
+            # BTC движение за 1 час
+            if len(btc_df) >= 60:
                 recent_60m = btc_df.tail(60)
                 if not recent_60m.empty and len(recent_60m) >= 1:
                     price_60m_ago = recent_60m.iloc[0]['open']
@@ -415,25 +383,30 @@ class MarketFilters:
                     if price_60m_ago > 0:
                         btc_move_1h = ((current_price - price_60m_ago) / price_60m_ago) * 100
                         
-                        if abs(btc_move_1h) >= MarketFilters.BTC_STRONG_MOVE_1H:
+                        if abs(btc_move_1h) > MarketFilters.BTC_MAX_MOVE_1H:
+                            MarketFilters._set_btc_pause()
+                            result['reason'] = f"BTC moved {btc_move_1h:+.2f}% in 1h > {MarketFilters.BTC_MAX_MOVE_1H}%"
+                            return result
+                        
+                        if direction:
                             btc_direction = 'LONG' if btc_move_1h > 0 else 'SHORT'
-                            
-                            if direction != btc_direction:
-                                result['reason'] = f"BTC moved {btc_move_1h:+.2f}% in 1h, only {btc_direction} signals allowed"
+                            if abs(btc_move_1h) >= MarketFilters.BTC_STRONG_MOVE_1H and direction != btc_direction:
+                                MarketFilters._set_btc_pause()
+                                result['reason'] = f"BTC impulse {btc_move_1h:+.2f}% in 1h against signal direction"
                                 return result
             
-            # ETH движение за 15 минут
+            # ETH движение за 1 час
             try:
-                eth_df = await client.get_ohlcv('ETH/USDT', '1m', limit=15)
-                if eth_df is not None and not eth_df.empty and len(eth_df) >= 15:
-                    price_15m_ago = eth_df.iloc[0]['open']
+                eth_df = await client.get_ohlcv('ETH/USDT', '1m', limit=60)
+                if eth_df is not None and not eth_df.empty and len(eth_df) >= 60:
+                    price_60m_ago = eth_df.iloc[0]['open']
                     current_price = eth_df.iloc[-1]['close']
                     
-                    if price_15m_ago > 0:
-                        eth_move_15m = abs((current_price - price_15m_ago) / price_15m_ago) * 100
+                    if price_60m_ago > 0:
+                        eth_move_1h = abs((current_price - price_60m_ago) / price_60m_ago) * 100
                         
-                        if eth_move_15m > MarketFilters.ETH_MAX_MOVE_15M:
-                            result['reason'] = f"ETH moved {eth_move_15m:.2f}% in 15min > {MarketFilters.ETH_MAX_MOVE_15M}%"
+                        if eth_move_1h > MarketFilters.ETH_MAX_MOVE_1H:
+                            result['reason'] = f"ETH moved {eth_move_1h:.2f}% in 1h > {MarketFilters.ETH_MAX_MOVE_1H}%"
                             return result
             except:
                 pass  # ETH check is optional

@@ -35,8 +35,8 @@ class SignalGenerator:
     # Тренд и структура
     MAX_EMA50_DISTANCE_ATR = 3.0  # Расстояние от EMA50 ≤ 3 ATR
     MAX_EMA50_DEVIATION_ATR = 2.5  # Отклонение от EMA50 ≤ 2.5 ATR
-    PULLBACK_MIN_ATR = 0.2
-    PULLBACK_MAX_ATR = 0.8
+    PULLBACK_MIN_ATR = 0.3
+    PULLBACK_MAX_ATR = 1.0
     MIN_TREND_CANDLES = 0.333  # Минимум 1 из 3 свечей
     
     # Свеча сигнала

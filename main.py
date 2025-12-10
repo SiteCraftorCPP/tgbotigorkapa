@@ -73,7 +73,7 @@ class CryptoSignalBot:
         # Автоматическое обновление торговых пар на топ-N (из настроек)
         from analysis.market_filters import MarketFilters
         top_coins_limit = MarketFilters.TOP_COINS_LIMIT
-        log_info(f"Fetching top {top_coins_limit} coins by market cap...")
+        log_info(f"Fetching top {top_coins_limit} coins on XT by volume (USDT)...")
         success = await update_trading_pairs_auto(limit=top_coins_limit)
         if success:
             log_info(f"✅ Trading pairs auto-updated to top {top_coins_limit} coins")
@@ -288,7 +288,7 @@ class CryptoSignalBot:
                 reason = (ds_result.get('plan') or {}).get('reason') or ds_result.get('error') or 'Rejected'
                 log_info(f"[DEEPSEEK] ❌ Rejected {ticker}: {reason}")
                 try:
-                    await self.telegram_bot.send_admin_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
+                    await self.telegram_bot.send_rejected_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
                 except Exception:
                     pass
                 return
