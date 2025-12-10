@@ -46,6 +46,13 @@ class XTExchange(ccxt.binance):
         # Отключаем автоматическую загрузку markets при инициализации
         # Markets будут загружаться по требованию
         self.markets = {}
+
+    # XT не имеет sandbox/testnet URL. Жёстко блокируем включение sandboxMode,
+    # чтобы ccxt не пытался переключиться и не бросал исключение.
+    def set_sandbox_mode(self, enabled):
+        # Игнорируем запрос на включение sandbox, оставляем продовые URL
+        self.sandboxMode = False
+        return self.urls
     
     def public_get_klines(self, params={}):
         """Переопределяем public_get_klines для использования правильного эндпоинта XT.com"""
