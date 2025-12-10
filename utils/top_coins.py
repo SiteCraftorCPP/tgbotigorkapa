@@ -114,7 +114,11 @@ class TopCoinsService:
                     'type': 'future',
                     'swap': True,
                     'contract': True,
+                    'linear': True,
+                    'inverse': False,
+                    'contractSize': 1.0,
                     'active': True,
+                    'precision': {'amount': 8, 'price': 8},
                 }
             # сохраняем в клиент, чтобы downstream код видел markets
             client.exchange.markets = markets
