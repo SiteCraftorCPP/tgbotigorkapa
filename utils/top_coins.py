@@ -108,6 +108,7 @@ class TopCoinsService:
                 base = symbol.split('/')[0]
                 markets[symbol] = {
                     'symbol': symbol,
+                    'id': symbol.replace('/', ''),
                     'base': base,
                     'quote': 'USDT',
                     'type': 'future',
