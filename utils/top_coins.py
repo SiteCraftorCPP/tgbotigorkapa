@@ -18,6 +18,11 @@ class TopCoinsService:
         'update_interval': timedelta(minutes=30)  # Обновлять раз в 30 минут
     }
     
+    # Явно исключаем нежелательные базы (стейблы/служебные тикеры)
+    EXCLUDED_BASES = {
+        'USDT', 'USDC', 'BUSD', 'USDS', 'BSC-USD'
+    }
+    
     @classmethod
     def _get_top_coins_limit(cls) -> int:
         """Получить лимит топ монет из настроек фильтров"""
@@ -82,25 +87,31 @@ class TopCoinsService:
         
         pairs: List[Tuple[str, float]] = []
         
-        for symbol, ticker in tickers.items():
-            # Фильтруем только USDT пары
-            if not symbol.endswith('/USDT'):
+        # Идём по markets, чтобы гарантировать фильтр контрактов/свапов
+        for market in markets.values():
+            symbol = market.get('symbol')
+            if not symbol or not symbol.endswith('/USDT'):
                 continue
             
-            # Проверяем market активность
-            market = markets.get(symbol)
-            if not market or market.get('active') is False:
+            base = symbol.split('/')[0]
+            if base in cls.EXCLUDED_BASES or '-' in base:
                 continue
             
-            # Берём объём в quote, если нет — пытаемся из baseVolume * last
+            # Оставляем только фьючерсные свопы USDT
+            if not market.get('contract') or not market.get('swap'):
+                continue
+            if market.get('active') is False:
+                continue
+            
+            ticker = tickers.get(symbol, {})
             vol = ticker.get('quoteVolume')
             if vol is None:
                 base_vol = ticker.get('baseVolume')
                 last = ticker.get('last') or 0
                 vol = (base_vol * last) if base_vol and last else 0
             
-            if vol is None:
-                vol = 0
+            if not vol or vol <= 0:
+                continue
             
             pairs.append((symbol, float(vol)))
         
@@ -108,15 +119,14 @@ class TopCoinsService:
         pairs.sort(key=lambda x: x[1], reverse=True)
         
         # ВАЛИДАЦИЯ: проверяем что пары реально торгуются (есть данные OHLCV)
-        # Берём топ (limit * 1.5) для валидации, так как часть может не пройти проверку
-        candidates = [p for p, _ in pairs[:int(limit * 1.5)]]
+        candidates = [p for p, _ in pairs[:max(limit, int(limit * 1.5))]]
         validated_pairs = []
         
         logger.info(f"🔍 Validating {len(candidates)} top pairs from XT (checking OHLCV availability)...")
         
         for pair in candidates:
             try:
-                # Быстрая проверка - запрашиваем 1 свечу
+                # Быстрая проверка - запрашиваем 1 свечу на 1m
                 df = await client.get_ohlcv(pair, '1m', limit=1)
                 if df is not None and not df.empty:
                     validated_pairs.append(pair)
