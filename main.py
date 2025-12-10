@@ -202,7 +202,17 @@ class CryptoSignalBot:
                     log_error(f"Exception in {pair} {tf}: {str(result)}", "analyze_market_parallel")
                     continue
                     
-                # Логируем только сигналы, остальное засоряет логи
+                # Логируем сигналы и предупреждения no_data/no_higher_data (важно для диагностики)
+                status = result.get('status') if result else None
+                if status == 'no_data':
+                    pair = result.get('pair', 'unknown')
+                    tf = result.get('timeframe', 'unknown')
+                    log_warning(f"⚠️ NO_DATA: {pair} {tf} - pair from XT tickers has no OHLCV data (validation should prevent this!)")
+                elif status == 'no_higher_data':
+                    pair = result.get('pair', 'unknown')
+                    tf = result.get('timeframe', 'unknown')
+                    log_warning(f"⚠️ NO_HIGHER_DATA: {pair} {tf} - missing higher timeframe data")
+                
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
                     log_info(f"✅ Signal found: {signal.get('ticker')} {signal.get('timeframe')} - processing...")

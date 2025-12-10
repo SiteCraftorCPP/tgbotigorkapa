@@ -67,6 +67,7 @@ class TopCoinsService:
         """
         Получить топ пар по объёму USDT с XT.
         Используем fetch_tickers для объёмов, фильтруем только USDT, активные рынки.
+        ВАЛИДАЦИЯ: проверяем что пары реально торгуются (есть OHLCV данные).
         """
         from exchange.xt_client import XTClient
         
@@ -106,9 +107,31 @@ class TopCoinsService:
         # Сортируем по объёму убыв.
         pairs.sort(key=lambda x: x[1], reverse=True)
         
-        # Ограничиваем лимитом
-        top_pairs = [p for p, _ in pairs[:limit]]
-        return top_pairs
+        # ВАЛИДАЦИЯ: проверяем что пары реально торгуются (есть данные OHLCV)
+        # Берём топ (limit * 1.5) для валидации, так как часть может не пройти проверку
+        candidates = [p for p, _ in pairs[:int(limit * 1.5)]]
+        validated_pairs = []
+        
+        logger.info(f"🔍 Validating {len(candidates)} top pairs from XT (checking OHLCV availability)...")
+        
+        for pair in candidates:
+            try:
+                # Быстрая проверка - запрашиваем 1 свечу
+                df = await client.get_ohlcv(pair, '1m', limit=1)
+                if df is not None and not df.empty:
+                    validated_pairs.append(pair)
+                    if len(validated_pairs) >= limit:
+                        break
+                else:
+                    logger.warning(f"⚠️ Pair {pair} from XT tickers has no OHLCV data - skipping")
+            except Exception as e:
+                logger.warning(f"⚠️ Pair {pair} validation failed: {e} - skipping")
+                continue
+        
+        if len(validated_pairs) < limit:
+            logger.warning(f"⚠️ Only {len(validated_pairs)}/{limit} pairs passed validation. Some XT tickers may not have OHLCV data.")
+        
+        return validated_pairs
     
     @classmethod
     def _is_cache_valid(cls) -> bool:
