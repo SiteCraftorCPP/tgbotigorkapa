@@ -1,3 +1,4 @@
+import os
 import ccxt
 import pandas as pd
 from typing import List, Dict, Optional
@@ -341,6 +342,12 @@ class XTClient:
                 exchange_config['secret'] = config.XT_API_SECRET
             
             self.exchange = XTExchange(exchange_config)
+            # Явно отключаем sandbox/testnet режим, чтобы не дергать несуществующие testnet URLs
+            try:
+                if hasattr(self.exchange, "set_sandbox_mode"):
+                    self.exchange.set_sandbox_mode(False)
+            except Exception as e:
+                logger.warning(f"XTClient: failed to disable sandbox mode: {e}")
             
             # Если используем Binance fallback, инициализируем Binance exchange для публичных данных
             if self.use_binance_fallback:
@@ -354,6 +361,11 @@ class XTClient:
                     })
                     # Загружаем markets для Binance
                     self.binance_exchange.load_markets()
+                    try:
+                        if hasattr(self.binance_exchange, "set_sandbox_mode"):
+                            self.binance_exchange.set_sandbox_mode(False)
+                    except Exception as e:
+                        logger.warning(f"Binance fallback: failed to disable sandbox mode: {e}")
                 except Exception as e:
                     print(f"WARN: Не удалось инициализировать Binance fallback: {e}")
                     self.binance_exchange = None
