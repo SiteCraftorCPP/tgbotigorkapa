@@ -28,6 +28,8 @@ class XTExchange(ccxt.binance):
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
         }
+        # Во избежание ошибок sandbox/testnet — задаем test такие же, как prod
+        self.urls['test'] = self.urls['api']
         self.id = 'xt'
         
         # Убираем testnet URLs
@@ -42,6 +44,10 @@ class XTExchange(ccxt.binance):
         # Переопределяем методы, которые используют sapi
         self.has['fetchMarkets'] = True
         self.has['fetchCurrencies'] = False  # Отключаем загрузку валют через sapi
+        # Явно выключаем sandboxMode на уровне опций
+        if 'options' not in self.options:
+            self.options = {}
+        self.options['sandboxMode'] = False
         
         # Отключаем автоматическую загрузку markets при инициализации
         # Markets будут загружаться по требованию
@@ -52,6 +58,10 @@ class XTExchange(ccxt.binance):
     def set_sandbox_mode(self, enabled):
         # Игнорируем запрос на включение sandbox, оставляем продовые URL
         self.sandboxMode = False
+        if 'options' not in self.options:
+            self.options = {}
+        self.options['sandboxMode'] = False
+        self.urls['test'] = self.urls.get('api', self.urls)
         return self.urls
     
     def public_get_klines(self, params={}):
@@ -340,6 +350,7 @@ class XTClient:
                 'enableRateLimit': True,
                 'options': {
                     'defaultType': 'future',
+                    'sandboxMode': False,
                 },
             }
             
@@ -364,6 +375,7 @@ class XTClient:
                         'enableRateLimit': True,
                         'options': {
                             'defaultType': 'future',
+                            'sandboxMode': False,
                         },
                     })
                     # Загружаем markets для Binance
