@@ -158,23 +158,33 @@ class TopCoinsService:
         
         # ВАЛИДАЦИЯ: проверяем что пары реально торгуются (есть данные OHLCV)
         candidates = [p for p, _ in pairs[:max(limit, int(limit * 1.5))]]
-        validated_pairs = []
-        
         logger.info(f"🔍 Validating {len(candidates)} top pairs from XT (checking OHLCV availability)...")
         
-        for pair in candidates:
-            try:
-                # Быстрая проверка - запрашиваем 1 свечу на 1m
-                df = await client.get_ohlcv(pair, '1m', limit=1)
-                if df is not None and not df.empty:
-                    validated_pairs.append(pair)
-                    if len(validated_pairs) >= limit:
-                        break
-                else:
-                    logger.warning(f"⚠️ Pair {pair} from XT tickers has no OHLCV data - skipping")
-            except Exception as e:
-                logger.warning(f"⚠️ Pair {pair} validation failed: {e} - skipping")
-                continue
+        # Параллельная валидация с ограничением по одновременным запросам
+        semaphore = asyncio.Semaphore(12)
+        warn_count = 0
+        max_warn = 30
+
+        async def validate_pair(pair: str):
+            nonlocal warn_count
+            async with semaphore:
+                try:
+                    df = await client.get_ohlcv(pair, '1m', limit=1)
+                    if df is not None and not df.empty:
+                        return pair
+                    else:
+                        if warn_count < max_warn:
+                            logger.warning(f"⚠️ Pair {pair} from XT tickers has no OHLCV data - skipping")
+                        warn_count += 1
+                        return None
+                except Exception as e:
+                    if warn_count < max_warn:
+                        logger.warning(f"⚠️ Pair {pair} validation failed: {e} - skipping")
+                    warn_count += 1
+                    return None
+
+        results = await asyncio.gather(*(validate_pair(p) for p in candidates))
+        validated_pairs = [p for p in results if p][:limit]
         
         if len(validated_pairs) < limit:
             logger.warning(f"⚠️ Only {len(validated_pairs)}/{limit} pairs passed validation. Some XT tickers may not have OHLCV data.")
