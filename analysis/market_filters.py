@@ -1195,7 +1195,7 @@ class MarketFilters:
                             
                             if age_days < MarketFilters.MIN_CONTRACT_AGE_DAYS:
                                 result['reason'] = f"Contract age {age_days} days < {MarketFilters.MIN_CONTRACT_AGE_DAYS} days"
-                    return result
+                                return result
                             else:
                                 result['passed'] = True
                                 return result
