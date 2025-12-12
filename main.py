@@ -212,7 +212,7 @@ class CryptoSignalBot:
                     pair = result.get('pair', 'unknown')
                     tf = result.get('timeframe', 'unknown')
                     log_warning(f"⚠️ NO_HIGHER_DATA: {pair} {tf} - missing higher timeframe data")
-                
+                    
                 if result and result.get('status') == 'signal':
                     signal = result['signal']
                     log_info(f"✅ Signal found: {signal.get('ticker')} {signal.get('timeframe')} - processing...")

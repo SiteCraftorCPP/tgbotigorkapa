@@ -362,7 +362,7 @@ class MarketFilters:
             if btc_df is None or btc_df.empty or len(btc_df) < 60:
                 result['passed'] = True
                 result['reason'] = "BTC data unavailable, filter skipped"
-                return result
+                            return result
             
             # BTC разворотов за 30 минут
             if len(btc_df) >= 30:

@@ -114,8 +114,8 @@ class TelegramBot:
             logger.info(f"[DEEPSEEK] Block sending {ticker}: {reason}")
             try:
                 await self.send_rejected_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"[DEEPSEEK] Failed to send rejected notification for {ticker}: {e}")
             return False
         
         try:
@@ -291,10 +291,18 @@ class TelegramBot:
         Отправка сообщения в канал отклонённых сигналов.
         Если не указан TELEGRAM_REJECTED_CHANNEL_ID — отправляем в админ-канал (но не в основной).
         """
+        from utils.logger import logger
         target_chat = config.TELEGRAM_REJECTED_CHANNEL_ID or config.TELEGRAM_ADMIN_CHANNEL_ID
-        if not target_chat:
-            # Если нет ни reject, ни admin канала — не отправляем, чтобы не засорять основной
+        admin_chat = config.TELEGRAM_ADMIN_CHANNEL_ID or config.TELEGRAM_CHANNEL_ID
+
+        if not target_chat and not admin_chat:
+            # Нет ни reject, ни admin — выходим, чтобы не спамить основной
+            logger.error("[REJECTED] No reject/admin channel configured; skip sending rejected message")
             return
+        if not target_chat:
+            target_chat = admin_chat
+
+        logger.info(f"[REJECTED] Sending rejected signal notice to {target_chat}")
         try:
             await self.bot.send_message(
                 chat_id=target_chat,
@@ -302,7 +310,18 @@ class TelegramBot:
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
-            print(f"[ERROR] Failed to send rejected message: {e}")
+            logger.error(f"[ERROR] Failed to send rejected message to {target_chat}: {e}")
+            # Фолбэк: пытаемся в админ-канал, если не совпадает
+            if admin_chat and admin_chat != target_chat:
+                try:
+                    logger.info(f"[REJECTED] Fallback to admin channel {admin_chat}")
+                    await self.bot.send_message(
+                        chat_id=admin_chat,
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception as e2:
+                    logger.error(f"[ERROR] Failed fallback rejected message to admin {admin_chat}: {e2}")
     
     def _format_price(self, price: float) -> str:
         """Умное форматирование цены в зависимости от её величины"""

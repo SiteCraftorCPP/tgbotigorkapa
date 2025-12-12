@@ -8,6 +8,7 @@ User=root
 WorkingDirectory=/root/tgbotigorkapa
 Environment="PATH=/root/tgbotigorkapa/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="VIRTUAL_ENV=/root/tgbotigorkapa/venv"
+EnvironmentFile=/root/tgbotigorkapa/.env
 ExecStart=/root/tgbotigorkapa/venv/bin/python3 /root/tgbotigorkapa/main.py
 Restart=always
 RestartSec=30

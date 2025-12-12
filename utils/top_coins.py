@@ -65,7 +65,7 @@ class TopCoinsService:
         except Exception:
             pass
         
-        return []
+                    return []
     
     @classmethod
     async def _fetch_from_xt(cls, limit: int) -> List[str]:
