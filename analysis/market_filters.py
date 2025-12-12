@@ -386,14 +386,14 @@ class MarketFilters:
                         if abs(btc_move_1h) > MarketFilters.BTC_MAX_MOVE_1H:
                             MarketFilters._set_btc_pause()
                             result['reason'] = f"BTC moved {btc_move_1h:+.2f}% in 1h > {MarketFilters.BTC_MAX_MOVE_1H}%"
-                return result
+                            return result
                         
                         if direction:
                             btc_direction = 'LONG' if btc_move_1h > 0 else 'SHORT'
                             if abs(btc_move_1h) >= MarketFilters.BTC_STRONG_MOVE_1H and direction != btc_direction:
                                 MarketFilters._set_btc_pause()
                                 result['reason'] = f"BTC impulse {btc_move_1h:+.2f}% in 1h against signal direction"
-                    return result
+                                return result
             
             # ETH движение за 1 час
             try:
@@ -407,7 +407,7 @@ class MarketFilters:
                         
                         if eth_move_1h > MarketFilters.ETH_MAX_MOVE_1H:
                             result['reason'] = f"ETH moved {eth_move_1h:.2f}% in 1h > {MarketFilters.ETH_MAX_MOVE_1H}%"
-                return result
+                            return result
             except:
                 pass  # ETH check is optional
             
