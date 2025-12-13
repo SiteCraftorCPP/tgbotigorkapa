@@ -29,6 +29,9 @@ DEEPSEEK_API_KEYS = [k.strip() for k in os.getenv('DEEPSEEK_API_KEYS', '').split
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
 
+# News (GNews)
+GNEWS_API_KEY = os.getenv('GNEWS_API_KEY')
+
 # Fallback keys provided for local testing (override via .env in production)
 if not DEEPSEEK_API_KEYS:
     DEEPSEEK_API_KEYS = [

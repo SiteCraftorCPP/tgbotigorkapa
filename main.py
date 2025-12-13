@@ -280,6 +280,17 @@ class CryptoSignalBot:
             
             log_info(f"[DEBUG] No duplicates for {ticker}, proceeding to save...")
 
+            # GNews: подтягиваем новости по символу (если доступен ключ)
+            try:
+                from utils.gnews_client import fetch_gnews
+                base_symbol = signal['ticker'].split('/')[0]
+                news_data = await fetch_gnews(base_symbol)
+                if news_data:
+                    signal['gnews'] = news_data
+                    log_info(f"[GNEWS] Added news for {base_symbol}: sym={len(news_data.get('symbol', {}).get('articles', []))}, market={len(news_data.get('market', {}).get('articles', []))}")
+            except Exception as e:
+                log_warning(f"[GNEWS] Failed to fetch news for {ticker}: {e}")
+
             # DeepSeek анализ перед сохранением/отправкой
             log_info(f"[DEEPSEEK] Sending {ticker} to DeepSeek for validation...")
             ds_result = await self.deepseek.analyze_signal(signal)

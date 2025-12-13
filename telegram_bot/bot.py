@@ -107,17 +107,6 @@ class TelegramBot:
         from utils.logger import logger
         ticker = signal.get('ticker', 'UNKNOWN')
         
-        # Дополнительный барьер: если DeepSeek отклонил — не отправляем
-        ds = signal.get('deepseek')
-        if isinstance(ds, dict) and ds.get('approved') is False:
-            reason = (ds.get('plan') or {}).get('reason') or ds.get('error') or 'Rejected by DeepSeek'
-            logger.info(f"[DEEPSEEK] Block sending {ticker}: {reason}")
-            try:
-                await self.send_rejected_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
-            except Exception as e:
-                logger.error(f"[DEEPSEEK] Failed to send rejected notification for {ticker}: {e}")
-            return False
-        
         try:
             logger.info(f"[TELEGRAM] Preparing to send signal {ticker} to channel...")
             
@@ -293,7 +282,7 @@ class TelegramBot:
         """
         from utils.logger import logger
         target_chat = config.TELEGRAM_REJECTED_CHANNEL_ID or config.TELEGRAM_ADMIN_CHANNEL_ID
-        admin_chat = config.TELEGRAM_ADMIN_CHANNEL_ID or config.TELEGRAM_CHANNEL_ID
+        admin_chat = config.TELEGRAM_ADMIN_CHANNEL_ID  # не уходим в основной канал
 
         if not target_chat and not admin_chat:
             # Нет ни reject, ни admin — выходим, чтобы не спамить основной
