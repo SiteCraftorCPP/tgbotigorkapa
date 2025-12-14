@@ -10,8 +10,26 @@ def _ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
 
+def _tf_to_pandas_freq(tf: Optional[str]) -> Optional[str]:
+    """Конвертирует TF вида '1m', '5m', '1h', '4h' в pandas offset alias."""
+    if not tf or not isinstance(tf, str):
+        return None
+    tf = tf.lower().strip()
+    if tf.endswith("m"):
+        try:
+            return f"{int(tf[:-1])}min"
+        except Exception:
+            return None
+    if tf.endswith("h"):
+        try:
+            return f"{int(tf[:-1])}h"
+        except Exception:
+            return None
+    return None
+
+
 def render_signal_chart(
-    df: pd.DataFrame, signal: Dict, plan: Optional[Dict] = None, limit: int = 120
+    df: pd.DataFrame, signal: Dict, plan: Optional[Dict] = None, limit: int = 100
 ) -> Optional[str]:
     """
     Рендерит свечной график с уровнями entry/SL/TP.
@@ -27,6 +45,26 @@ def render_signal_chart(
             tail.index = pd.to_datetime(tail.index)
         except Exception:
             return None
+
+    # Дополнительно нормализуем частоту, чтобы не было "решётки" из множества свечей в одном таймстемпе
+    tf_freq = _tf_to_pandas_freq(signal.get("timeframe"))
+    if tf_freq:
+        try:
+            tail = (
+                tail.resample(tf_freq)
+                .agg(
+                    {
+                        "open": "first",
+                        "high": "max",
+                        "low": "min",
+                        "close": "last",
+                        "volume": "sum" if "volume" in tail.columns else "first",
+                    }
+                )
+                .dropna(how="any")
+            )
+        except Exception:
+            pass
 
     levels = []
     colors = []
@@ -123,7 +161,14 @@ def render_signal_chart(
             "hlines": dict(hlines=levels, colors=colors, linewidths=[1.4] * len(levels)),
             "title": f"{signal.get('ticker')} {signal.get('timeframe')}",
             "figsize": (16, 9),  # Ширина x Высота в дюймах (широкий формат)
-            "savefig": dict(fname=out_path, dpi=150, bbox_inches="tight", facecolor="#0b0d11"),
+            "savefig": dict(
+                fname=out_path,
+                dpi=200,
+                bbox_inches="tight",
+                facecolor="#0b0d11",
+            ),
+            "widths": dict(candle=0.7, wick=0.6),
+            "datetime_format": "%H:%M",
         }
         if fill_between:
             plot_args["fill_between"] = fill_between

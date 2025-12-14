@@ -13,6 +13,9 @@ import json
 class FilterSettings:
     """Хранилище настроек фильтров (в памяти, с возможностью сохранения в БД)"""
     
+    # Версия миграций настроек, чтобы не перетирать вручную выставленные значения
+    MIGRATION_VERSION = 4
+
     # Значения по умолчанию
     DEFAULTS = {
         # === ФИЛЬТРЫ РЫНКА ===
@@ -20,24 +23,24 @@ class FilterSettings:
         'min_futures_volume': 3_000_000,
         'min_volume_60m_ratio': 1.2,  # %
         'max_spread': 0.35,  # %
-        'max_avg_spread_15m': 0.30,  # %
+        'max_avg_spread_15m': 0.35,  # % (1h средний спред)
         'min_liquidity': 300_000,
         'funding_rate_min': -0.08,  # %
         'funding_rate_max': 0.08,  # %
-        'max_oi_change_15m': 25.0,  # %
+        'max_oi_change_15m': 35.0,  # % (1h изменение OI)
         'min_contract_age_days': 10,
-        'atr_min': 1.0,  # %
-        'atr_max': 5.0,  # %
+        'atr_min': 1.5,  # %
+        'atr_max': 9.0,  # %
         'max_atr_deviation': 35,  # %
-        'max_candle_body_gap': 2.5,  # %
-        'max_high_low_gap': 3.0,  # %
+        'max_candle_body_gap': 5.0,  # %
+        'max_high_low_gap': 7.0,  # %
         
         # === BTC/ETH ФИЛЬТРЫ ===
-        'btc_max_move_1h': 3.0,  # %
+        'btc_max_move_1h': 4.5,  # %
         'btc_max_reversals': 1,
-        'btc_pause_minutes': 10,
+        'btc_pause_minutes': 35,
         'btc_strong_move_1h': 3.0,  # %
-        'eth_max_move_1h': 3.0,  # %
+        'eth_max_move_1h': 4.0,  # %
         
         # === ВРЕМЕННЫЕ ФИЛЬТРЫ ===
         'time_guard_start': 0,  # минут
@@ -47,7 +50,7 @@ class FilterSettings:
         # === ИНДИКАТОРЫ ===
         'rsi_max_long': 70,
         'rsi_min_short': 30,
-        'adx_min': 15,
+        'adx_min': 20,
         'adx_max': 55,
         # (RR управляется логикой MEGABOT, не настраивается здесь)
         
@@ -171,36 +174,50 @@ class FilterSettings:
         чтобы текущие настройки соответствовали обновлённым лимитам.
         """
         changed = False
+
+        # Пропускаем миграции, если уже применена актуальная версия
+        current_version = cls._settings.get('_migration_version', 0)
+        if current_version >= cls.MIGRATION_VERSION:
+            return False
         
-        # MIGRATION: ATR мин фиксируем на 1.0% (все старые значения приводим к 1.0)
+        # Мягкие миграции: заполняем только отсутствующие или явно устаревшие значения,
+        # не перетирая то, что админ выставил вручную.
+        def ensure_default(key: str, target):
+            nonlocal changed
+            if key not in cls._settings:
+                cls._settings[key] = target
+                changed = True
+
+        # Минимальный порог ATR мин — только если в сохранённых настройках он ниже 1.0
         atr_min = cls._settings.get('atr_min')
-        if atr_min != 1.0:
+        if atr_min is None or atr_min < 1.0:
             cls._settings['atr_min'] = 1.0
             changed = True
-        
-        # MIGRATION: обновляем ключевые пороги до новых базовых требований
-        # Миграции с целевыми значениями (жёстко выставляем, если отличаются)
-        target_values = {
+
+        # Базовые значения для новых ключей (не трогаем, если ключ уже есть)
+        target_defaults = {
             # Рынок
             'min_futures_volume': 3_000_000,
             'min_volume_60m_ratio': 1.2,
             'min_liquidity': 300_000,
             'max_spread': 0.35,
-            'max_avg_spread_15m': 0.30,
+            'max_avg_spread_15m': 0.35,  # теперь 1h средний спред
             'funding_rate_min': -0.08,
             'funding_rate_max': 0.08,
-            'max_oi_change_15m': 25.0,
+            'max_oi_change_15m': 35.0,  # теперь 1h изменение OI
             'min_contract_age_days': 10,
             # Время
             'time_guard_start': 0,
             'time_guard_end': 0,
             'min_hourly_volume': 60,
             # ATR/структура
+            'atr_min': 1.5,
+            'atr_max': 9.0,
             'max_ema50_distance': 3.0,
             'pullback_min': 0.3,
             'min_opposite_distance': 1.8,
-            'max_candle_body_gap': 2.5,
-            'max_high_low_gap': 3.0,
+            'max_candle_body_gap': 5.0,
+            'max_high_low_gap': 7.0,
             'trend_neutral_threshold': 20,
             'trend_strong_threshold': 35,
             # Уровни
@@ -209,14 +226,14 @@ class FilterSettings:
             # Индикаторы
             'rsi_max_long': 70,
             'rsi_min_short': 30,
-            'adx_min': 15,
+            'adx_min': 20,
             'adx_max': 55,
             # BTC/ETH
             'btc_strong_move_1h': 3.0,
-            'btc_max_move_1h': 3.0,
+            'btc_max_move_1h': 4.5,
             'btc_max_reversals': 1,
-            'btc_pause_minutes': 10,
-            'eth_max_move_1h': 3.0,
+            'btc_pause_minutes': 35,
+            'eth_max_move_1h': 4.0,
             # Качество
             'impulse_body_ratio': 55,
             'impulse_avg_multiplier': 1.20,
@@ -228,12 +245,50 @@ class FilterSettings:
             'volume_contraction_ratio': 0.9,
             'pattern_check_enabled': True,
         }
-        for key, target in target_values.items():
-            current = cls._settings.get(key)
-            if current is None or current != target:
-                cls._settings[key] = target
-                changed = True
-        
+        for key, target in target_defaults.items():
+            ensure_default(key, target)
+
+        # Точечные обновления старых базовых значений → новые целевые
+        if cls._settings.get('max_avg_spread_15m') == 0.30:
+            cls._settings['max_avg_spread_15m'] = 0.35
+            changed = True
+        if cls._settings.get('max_oi_change_15m') == 25.0:
+            cls._settings['max_oi_change_15m'] = 35.0
+            changed = True
+        # ATR диапазон
+        if cls._settings.get('atr_min', 0) < 1.5:
+            cls._settings['atr_min'] = 1.5
+            changed = True
+        if cls._settings.get('atr_max', 0) < 9.0:
+            cls._settings['atr_max'] = 9.0
+            changed = True
+        # Разрывы
+        if cls._settings.get('max_candle_body_gap', 0) < 5.0:
+            cls._settings['max_candle_body_gap'] = 5.0
+            changed = True
+        if cls._settings.get('max_high_low_gap', 0) < 7.0:
+            cls._settings['max_high_low_gap'] = 7.0
+            changed = True
+        # ADX минимум
+        if cls._settings.get('adx_min', 0) < 20:
+            cls._settings['adx_min'] = 20
+            changed = True
+        # BTC/ETH пороги обновляем до новых целевых (жёстко)
+        if cls._settings.get('btc_max_move_1h') != 4.5:
+            cls._settings['btc_max_move_1h'] = 4.5
+            changed = True
+        if cls._settings.get('btc_pause_minutes') != 35:
+            cls._settings['btc_pause_minutes'] = 35
+            changed = True
+        if cls._settings.get('eth_max_move_1h') != 4.0:
+            cls._settings['eth_max_move_1h'] = 4.0
+            changed = True
+
+        # Фиксируем версию миграции, чтобы не применять её повторно
+        if current_version < cls.MIGRATION_VERSION:
+            cls._settings['_migration_version'] = cls.MIGRATION_VERSION
+            changed = True
+
         return changed
     
     @classmethod
@@ -377,13 +432,13 @@ class FilterPanel:
             'filters': [
                 ('top_coins_limit', 'Топ монет', '', [100, 150, 200, 250, 300]),
                 ('min_futures_volume', 'Мин. объём', 'M$', [1, 2, 3, 5, 10]),
-                ('min_volume_60m_ratio', 'Объём 60m', '%', [0.8, 1.0, 1.2, 1.5, 2.0]),
+            ('min_volume_60m_ratio', 'Объём 1h', '%', [0.8, 1.0, 1.2, 1.5, 2.0]),
                 ('max_spread', 'Макс. спред', '%', [0.10, 0.15, 0.18, 0.25, 0.35]),
-                ('max_avg_spread_15m', 'Средний спред 15m', '%', [0.15, 0.18, 0.22, 0.25, 0.30]),
+            ('max_avg_spread_15m', 'Средний спред 1h', '%', [0.20, 0.25, 0.30, 0.32, 0.35]),
                 ('min_liquidity', 'Мин. ликвидность', 'K$', [100, 200, 300, 500, 1000]),
                 ('funding_rate_min', 'Funding Rate мин', '%', [-0.10, -0.08, -0.06, -0.04, -0.02]),
                 ('funding_rate_max', 'Funding Rate макс', '%', [0.02, 0.04, 0.06, 0.08, 0.10]),
-                ('max_oi_change_15m', 'Изменение OI 15m', '%', [10, 15, 18, 20, 25]),
+            ('max_oi_change_15m', 'Изменение OI 1h', '%', [15, 20, 25, 30, 35]),
                 ('min_contract_age_days', 'Возраст контракта', 'дн', [10, 15, 20, 25, 30]),
             ]
         },
@@ -391,22 +446,22 @@ class FilterPanel:
             'name': '📈 ATR волатильность',
             'emoji': '📈',
             'filters': [
-                ('atr_min', 'ATR мин', '%', [1.0, 1.2, 1.5, 2.0, 2.5]),
-                ('atr_max', 'ATR макс', '%', [2.0, 2.5, 3.0, 3.5, 5.0]),
+                ('atr_min', 'ATR мин', '%', [1.0, 1.2, 1.5, 2.0, 3.0]),
+                ('atr_max', 'ATR макс', '%', [5.0, 6.0, 7.0, 8.0, 9.0]),
                 ('max_atr_deviation', 'Отклонение ATR', '%', [20, 25, 30, 35, 50]),
-                ('max_candle_body_gap', 'Разрыв свечи', '%', [1.0, 1.5, 1.8, 2.5, 3.0]),
-                ('max_high_low_gap', 'High/Low разрыв', '%', [1.5, 2.0, 2.5, 3.0, 4.0]),
+                ('max_candle_body_gap', 'Разрыв свечи', '%', [2.5, 3.0, 4.0, 5.0, 6.0]),
+                ('max_high_low_gap', 'High/Low разрыв', '%', [3.0, 4.0, 5.0, 6.0, 7.0]),
             ]
         },
         'btc': {
             'name': '₿ BTC/ETH фильтры',
             'emoji': '₿',
             'filters': [
-                ('btc_max_move_1h', 'BTC 1h движение', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
+                ('btc_max_move_1h', 'BTC 1h движение', '%', [2.0, 2.5, 3.0, 3.5, 4.5]),
                 ('btc_max_reversals', 'BTC 1h развороты', '', [1, 2, 3]),
-                ('btc_pause_minutes', 'Пауза BTC (1h импульс)', 'мин', [10, 15, 20, 30, 60]),
-                ('btc_strong_move_1h', 'BTC импульс 1h порог', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
-                ('eth_max_move_1h', 'ETH 1h движение', '%', [2.0, 2.5, 3.0, 3.5, 4.0]),
+                ('btc_pause_minutes', 'Пауза BTC (1h импульс)', 'мин', [10, 20, 25, 30, 35]),
+                ('btc_strong_move_1h', 'BTC импульс 1h порог', '%', [2.5, 3.0, 3.5, 4.0, 4.5]),
+                ('eth_max_move_1h', 'ETH 1h движение', '%', [3.0, 3.5, 4.0, 4.5]),
             ]
         },
         'time': {
@@ -424,7 +479,7 @@ class FilterPanel:
             'filters': [
                 ('rsi_max_long', 'RSI макс LONG', '', [60, 65, 68, 70, 75]),
                 ('rsi_min_short', 'RSI мин SHORT', '', [25, 30, 32, 35, 40]),
-                ('adx_min', 'ADX мин', '', [15, 18, 20, 25, 30]),
+            ('adx_min', 'ADX мин', '', [18, 20, 22, 25, 30]),
                 ('adx_max', 'ADX макс', '', [40, 45, 50, 55, 60]),
             ]
         },
@@ -683,6 +738,7 @@ class FilterPanel:
         s.pop('max_active_signals', None)
         s.pop('cooldown_hours', None)
         s.pop('min_data_candles', None)
+        s.pop('_migration_version', None)
         
         # Вычисляем значения для форматирования
         pattern_status = 'ВКЛ' if s.get('pattern_check_enabled', True) else 'ВЫКЛ'
@@ -704,16 +760,16 @@ class FilterPanel:
 📊 *Фильтры рынка:*
 ├ Топ монет: {top_coins_limit}
 ├ Мин. объём: {min_futures_volume_display}
-├ Объём 60m: {min_volume_60m_ratio}%
+├ Объём 1h: {min_volume_60m_ratio}%
 ├ Макс. спред: {max_spread}%
-├ Средний спред 15m: ≤{max_avg_spread_15m}%
+├ Средний спред 1h: ≤{max_avg_spread_15m}%
 ├ Мин. ликвидность: {min_liquidity_display}
 ├ Funding Rate: {funding_rate_min}% до {funding_rate_max}%
-├ Изменение OI 15m: ≤{max_oi_change_15m}%
+├ Изменение OI 1h: ≤{max_oi_change_15m}%
 └ Возраст контракта: ≥{min_contract_age_days} дней
 
 📈 *ATR волатильность:*
-├ ATR: {atr_min}% - {atr_max}%
+├ ATR: {atr_min}% - {atr_max}% (1h)
 ├ Отклонение ATR: ≤{max_atr_deviation}%
 └ Разрывы: ≤{max_candle_body_gap}% / {max_high_low_gap}%
 

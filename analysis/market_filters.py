@@ -28,25 +28,25 @@ class MarketFilters:
     # Объём фьючерсов 24h
     MIN_FUTURES_VOLUME_USDT = 3_000_000  # ≥ 3,000,000 USDT
     
-    # Объём 60m относительно 24h
+    # Объём 1h относительно 24h
     MIN_VOLUME_60M_RATIO = 0.012  # ≥ 1.2% от 24h
     
     # Спред
     MAX_SPREAD_PERCENT = 0.35  # ≤ 0.35%
-    MAX_AVG_SPREAD_15M_PERCENT = 0.30  # Средний спред 15m ≤ 0.30%
+    MAX_AVG_SPREAD_15M_PERCENT = 0.35  # Средний спред 1h ≤ 0.35%
     
     # Ликвидность
     MIN_LIQUIDITY_USDT = 300_000  # ≥ 300,000 USDT в пределах ±0.5%
     LIQUIDITY_PRICE_RANGE = 0.005  # ±0.5%
     
-    # ATR волатильность
-    ATR_MIN_PERCENT = 1.0  # ≥ 1.0%
-    ATR_MAX_PERCENT = 5.0  # ≤ 5.0%
+    # ATR волатильность (1h)
+    ATR_MIN_PERCENT = 1.5  # ≥ 1.5%
+    ATR_MAX_PERCENT = 9.0  # ≤ 9.0%
     MAX_ATR_DEVIATION = 35.0  # Отклонение ATR ≤ 35%
     
     # Свечи и разрывы
-    MAX_CANDLE_BODY_PERCENT = 2.5  # Нет свечей с Close-Open > 2.5%
-    MAX_HIGH_LOW_GAP_PERCENT = 3.0  # Нет High/Low разрывов > 3.0% за 20 свечей
+    MAX_CANDLE_BODY_PERCENT = 5.0  # Нет свечей с Close-Open > 5.0%
+    MAX_HIGH_LOW_GAP_PERCENT = 7.0  # Нет High/Low разрывов > 7.0% за 20 свечей
     CANDLE_CHECK_LOOKBACK = 20  # Последние 20 свечей
     
     # Funding Rate
@@ -54,7 +54,7 @@ class MarketFilters:
     FUNDING_RATE_MAX = 0.0008   # до +0.08%
     
     # Open Interest
-    MAX_OI_CHANGE_15M_PERCENT = 25.0  # Изменение OI за 15m ≤ 25%
+    MAX_OI_CHANGE_15M_PERCENT = 35.0  # Изменение OI за 1h ≤ 35%
     
     # Возраст контракта
     MIN_CONTRACT_AGE_DAYS = 10  # ≥ 10 дней
@@ -63,12 +63,12 @@ class MarketFilters:
     # BTC/ETH ФИЛЬТРЫ
     # ========================================================================
     
-    BTC_MAX_MOVE_1H = 3.0  # BTC движение за 1 час ≤ 3.0%
+    BTC_MAX_MOVE_1H = 4.5  # BTC движение за 1 час ≤ 4.5%
     BTC_MAX_REVERSALS_30M = 1  # BTC разворотов > 0.7% за 30 минут ≤ 1 (мягкая проверка)
     BTC_REVERSAL_THRESHOLD = 0.7  # Порог разворота 0.7%
-    BTC_PAUSE_MINUTES = 10  # Пауза после импульса BTC 1h: 10 минут
+    BTC_PAUSE_MINUTES = 35  # Пауза после импульса BTC 1h: 35 минут
     BTC_STRONG_MOVE_1H = 3.0  # При импульсе ≥3% запрещаем вход против направления
-    ETH_MAX_MOVE_1H = 3.0  # ETH движение за 1 час ≤ 3.0%
+    ETH_MAX_MOVE_1H = 4.0  # ETH движение за 1 час ≤ 4.0%
     
     # ========================================================================
     # ВРЕМЕННЫЕ ФИЛЬТРЫ
@@ -84,7 +84,7 @@ class MarketFilters:
     
     RSI_MAX_LONG = 70  # RSI для лонга ≤ 70
     RSI_MIN_SHORT = 30  # RSI для шорта ≥ 30
-    ADX_MIN = 15  # ADX ≥ 15
+    ADX_MIN = 20  # ADX ≥ 20
     ADX_MAX = 55  # ADX ≤ 55
     MIN_RR_RATIO = 1.5  # Минимальный RR ≥ 1.5:1
     
@@ -250,7 +250,7 @@ class MarketFilters:
             result['reason'] = gap_check['reason']
             return result
         
-        # 9. Volume 60m ratio check (адаптивно для разных таймфреймов)
+        # 9. Volume 1h ratio check (адаптивно для разных таймфреймов)
         volume_ratio_check = MarketFilters.check_volume_60m_ratio(df, volume_24h, timeframe)
         if not volume_ratio_check['passed']:
             result['reason'] = volume_ratio_check['reason']
@@ -262,7 +262,7 @@ class MarketFilters:
             result['reason'] = hourly_vol_check['reason']
             return result
         
-        # 11. Средний спред 15m ≤ 0.30%
+        # 11. Средний спред 1h ≤ 0.35%
         avg_spread_check = await MarketFilters.check_avg_spread_15m(ticker, client, df, timeframe)
         if not avg_spread_check['passed']:
             result['reason'] = avg_spread_check['reason']
@@ -274,7 +274,7 @@ class MarketFilters:
             result['reason'] = funding_check['reason']
             return result
         
-        # 13. Изменение Open Interest за 15m ≤ 25%
+        # 13. Изменение Open Interest за 1h ≤ 35%
         oi_check = await MarketFilters.check_open_interest_change(ticker, client, df, timeframe)
         if not oi_check['passed']:
             result['reason'] = oi_check['reason']
@@ -625,7 +625,7 @@ class MarketFilters:
     
     @staticmethod
     def check_volume_60m_ratio(df: pd.DataFrame, volume_24h: float, timeframe: str = '5m') -> Dict:
-        """Volume 60m ≥ 1.0% of 24h (адаптивно для разных таймфреймов)"""
+        """Volume 1h ≥ 1.2% of 24h (адаптивно для разных таймфреймов)"""
         result = {'passed': False, 'reason': ''}
         
         if df.empty or volume_24h is None or volume_24h == 0:
@@ -660,7 +660,7 @@ class MarketFilters:
         ratio = volume_60m_usdt / volume_24h
         
         if ratio < MarketFilters.MIN_VOLUME_60M_RATIO:
-            result['reason'] = f"Volume 60m ratio {ratio*100:.2f}% < {MarketFilters.MIN_VOLUME_60M_RATIO*100}%"
+            result['reason'] = f"Volume 1h ratio {ratio*100:.2f}% < {MarketFilters.MIN_VOLUME_60M_RATIO*100}%"
             return result
         
         result['passed'] = True
@@ -1037,11 +1037,11 @@ class MarketFilters:
     
     @staticmethod
     async def check_avg_spread_15m(ticker: str, client: XTClient, df: pd.DataFrame, timeframe: str) -> Dict:
-        """Средний спред 15m ≤ 0.30%"""
+        """Средний спред 1h ≤ 0.35% (название ключа сохранено для совместимости)"""
         result = {'passed': False, 'reason': ''}
         
         try:
-            # Определяем количество свечей для 15 минут
+            # Определяем количество свечей для 60 минут
             timeframe_minutes = {
                 '1m': 1,
                 '5m': 5,
@@ -1052,14 +1052,14 @@ class MarketFilters:
             }
             
             tf_minutes = timeframe_minutes.get(timeframe, 5)
-            candles_15m = max(1, int(15 / tf_minutes))
+            candles_60m = max(1, int(60 / tf_minutes))
             
-            if len(df) < candles_15m:
+            if len(df) < candles_60m:
                 result['passed'] = True
                 return result
             
-            # Получаем спреды за последние 15 минут
-            recent = df.tail(candles_15m)
+            # Получаем спреды за последние 60 минут
+            recent = df.tail(candles_60m)
             spreads = []
             
             for idx, row in recent.iterrows():
@@ -1078,10 +1078,10 @@ class MarketFilters:
             avg_spread = sum(spreads) / len(spreads)
             
             if avg_spread > MarketFilters.MAX_AVG_SPREAD_15M_PERCENT:
-                reason = f"Avg spread 15m {avg_spread:.3f}% > {MarketFilters.MAX_AVG_SPREAD_15M_PERCENT}%"
+                reason = f"Avg spread 1h {avg_spread:.3f}% > {MarketFilters.MAX_AVG_SPREAD_15M_PERCENT}%"
                 result['reason'] = reason
                 from utils.logger import log_api_check
-                log_api_check(ticker, "BLOCKED", f"AvgSpread15m: {avg_spread:.3f}%")
+                log_api_check(ticker, "BLOCKED", f"AvgSpread1h: {avg_spread:.3f}%")
                 return result
             
             result['passed'] = True
@@ -1128,11 +1128,11 @@ class MarketFilters:
     
     @staticmethod
     async def check_open_interest_change(ticker: str, client: XTClient, df: pd.DataFrame, timeframe: str) -> Dict:
-        """Изменение Open Interest за 15m ≤ 25%"""
+        """Изменение Open Interest за 1h ≤ 35%"""
         result = {'passed': False, 'reason': ''}
         
         try:
-            # Определяем количество свечей для 15 минут
+            # Определяем количество свечей для 60 минут
             timeframe_minutes = {
                 '1m': 1,
                 '5m': 5,
@@ -1143,9 +1143,9 @@ class MarketFilters:
             }
             
             tf_minutes = timeframe_minutes.get(timeframe, 5)
-            candles_15m = max(1, int(15 / tf_minutes))
+            candles_60m = max(1, int(60 / tf_minutes))
             
-            if len(df) < candles_15m + 1:
+            if len(df) < candles_60m + 1:
                 result['passed'] = True
                 return result
             

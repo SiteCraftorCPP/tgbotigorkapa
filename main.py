@@ -297,10 +297,32 @@ class CryptoSignalBot:
             signal['deepseek'] = ds_result
 
             if not ds_result.get('approved'):
-                reason = (ds_result.get('plan') or {}).get('reason') or ds_result.get('error') or 'Rejected'
+                def _format_reject_reason(ds_res: Dict[str, Any]) -> str:
+                    reasons = []
+                    plan = ds_res.get('plan') or {}
+                    if isinstance(plan, dict):
+                        r = plan.get('reason') or plan.get('reason_comment') or plan.get('comment')
+                        if isinstance(r, str) and r.strip():
+                            reasons.append(r.strip())
+                        codes = plan.get('reason_codes')
+                        if isinstance(codes, (list, tuple)):
+                            codes_str = ", ".join([str(c) for c in codes if str(c).strip()])
+                            if codes_str:
+                                reasons.append(f"codes: {codes_str}")
+                    err = ds_res.get('error')
+                    if err:
+                        reasons.append(str(err))
+                    raw = ds_res.get('raw')
+                    if raw and not reasons:
+                        reasons.append(str(raw)[:300])
+                    return "; ".join(reasons) if reasons else "Rejected"
+
+                reason = _format_reject_reason(ds_result)
                 log_info(f"[DEEPSEEK] ❌ Rejected {ticker}: {reason}")
                 try:
-                    await self.telegram_bot.send_rejected_message(f"🤖 DeepSeek rejected {ticker}: {reason}")
+                    await self.telegram_bot.send_rejected_message(
+                        f"🤖 DeepSeek rejected {ticker} {signal.get('direction')} {signal.get('timeframe')}: {reason}"
+                    )
                 except Exception:
                     pass
                 return
