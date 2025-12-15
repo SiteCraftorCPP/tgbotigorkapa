@@ -112,6 +112,14 @@ MEGABOT уже гарантировал:
 - чистоту рынка, отсутствие аномалий,
 - минимальный RR и техническую пригодность сетапа.
 
+ENTRY RULES (1H, already pre-validated by MEGABOT):
+- Signal candle body ≥60% of range and ≤1.8× avg body (20 bars, 1H), volume ≥1.15× avg (20 bars).
+- Structure intact: LONG ⇒ HH + HL, SHORT ⇒ LL + LH; swing-to-swing distance ≥1.0 ATR.
+- Pullback before signal is 0.3–1.0 ATR.
+- EMA50 points with the signal; distance ≤2.5 ATR; slope aligns with direction.
+- Level confirmed by ≥2 touches; HTF touch with volume ≥1.3× average; breakout body ≥55% above/below level.
+- Signal only after the 1H signal candle is CLOSED; repeat only after new structure/pattern is formed.
+
 ────────────────────────────────
 ТВОЯ РОЛЬ
 ────────────────────────────────

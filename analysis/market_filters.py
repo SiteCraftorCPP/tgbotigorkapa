@@ -92,7 +92,7 @@ class MarketFilters:
     # ТРЕНД И СТРУКТУРА
     # ========================================================================
     
-    MAX_EMA50_DISTANCE_ATR = 3.0  # Расстояние от EMA50 ≤ 3 ATR
+    MAX_EMA50_DISTANCE_ATR = 2.5  # Расстояние от EMA50 ≤ 2.5 ATR
     PULLBACK_MIN_ATR = 0.3  # Pullback минимум 0.3 ATR
     PULLBACK_MAX_ATR = 1.0  # Pullback максимум 1.0 ATR
     MIN_TREND_CANDLES = 0.333  # Минимум 1 из 3 свечей в направлении
@@ -118,9 +118,9 @@ class MarketFilters:
     
     MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
     MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
-    HTF_VOLUME_MULTIPLIER = 1.2  # HTF: объём ≥ 1.2× среднего
+    HTF_VOLUME_MULTIPLIER = 1.3  # HTF: объём ≥ 1.3× среднего
     MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.8  # Дистанция до противоположного уровня ≥ 1.8 ATR
-    BREAKOUT_BODY_RATIO = 0.50  # Свеча пробоя: тело ≥ 50% выше/ниже уровня
+    BREAKOUT_BODY_RATIO = 0.55  # Свеча пробоя: тело ≥ 55% выше/ниже уровня
     
     # ========================================================================
     # SL/TP ПАРАМЕТРЫ
@@ -570,15 +570,89 @@ class MarketFilters:
     
     @staticmethod
     def check_atr_volatility(df: pd.DataFrame) -> Dict:
-        """ATR volatility (ОТКЛЮЧЕНО ДЛЯ ТЕСТИРОВАНИЯ)"""
-        result = {'passed': True, 'reason': '', 'atr_percent': 1.0}  # Всегда разрешаем
-        return result
+        """
+        ATR волатильность на 1H:
+        - atr% должно быть в диапазоне [ATR_MIN_PERCENT; ATR_MAX_PERCENT]
+        """
+        result = {'passed': False, 'reason': '', 'atr_percent': None}
+        
+        try:
+            if df is None or df.empty or len(df) < 20:
+                result['reason'] = "Not enough candles for ATR check"
+                return result
+            
+            atr_series = AverageTrueRange(
+                high=df['high'],
+                low=df['low'],
+                close=df['close'],
+                window=14
+            ).average_true_range()
+            
+            atr = atr_series.iloc[-1]
+            price = df['close'].iloc[-1]
+            
+            if pd.isna(atr) or pd.isna(price) or price <= 0:
+                result['reason'] = "ATR or price is NaN"
+                return result
+            
+            atr_percent = (atr / price) * 100
+            result['atr_percent'] = atr_percent
+            
+            if atr_percent < MarketFilters.ATR_MIN_PERCENT:
+                result['reason'] = f"ATR {atr_percent:.2f}% < {MarketFilters.ATR_MIN_PERCENT}%"
+                return result
+            
+            if atr_percent > MarketFilters.ATR_MAX_PERCENT:
+                result['reason'] = f"ATR {atr_percent:.2f}% > {MarketFilters.ATR_MAX_PERCENT}%"
+                return result
+            
+            result['passed'] = True
+            return result
+        except Exception as e:
+            result['reason'] = f"ATR check error: {e}"
+            return result
     
     @staticmethod
     def check_atr_deviation(df: pd.DataFrame) -> Dict:
-        """ATR deviation (ОТКЛЮЧЕНО ДЛЯ ТЕСТИРОВАНИЯ)"""
-        result = {'passed': True, 'reason': ''}  # Всегда разрешаем
-        return result
+        """
+        Отклонение текущего ATR от среднего не должно превышать MAX_ATR_DEVIATION (в %).
+        """
+        result = {'passed': False, 'reason': ''}
+        
+        try:
+            if df is None or df.empty or len(df) < 50:
+                result['reason'] = "Not enough candles for ATR deviation check"
+                return result
+            
+            atr_series = AverageTrueRange(
+                high=df['high'],
+                low=df['low'],
+                close=df['close'],
+                window=14
+            ).average_true_range()
+            
+            if atr_series.isna().any():
+                result['reason'] = "ATR series has NaN"
+                return result
+            
+            current_atr = atr_series.iloc[-1]
+            avg_atr = atr_series.tail(50).mean()
+            
+            if avg_atr == 0:
+                result['reason'] = "ATR average is zero"
+                return result
+            
+            deviation_percent = abs(current_atr - avg_atr) / avg_atr * 100
+            
+            if deviation_percent > MarketFilters.MAX_ATR_DEVIATION:
+                result['reason'] = f"ATR deviation {deviation_percent:.1f}% > {MarketFilters.MAX_ATR_DEVIATION}%"
+                return result
+            
+            result['passed'] = True
+            return result
+        except Exception as e:
+            result['reason'] = f"ATR deviation error: {e}"
+            return result
     
     @staticmethod
     def check_candle_bodies(df: pd.DataFrame) -> Dict:
@@ -728,21 +802,26 @@ class MarketFilters:
         """
         result = {'passed': False, 'reason': ''}
         
-        if df.empty or len(df) < 20:
-            result['passed'] = True
+        # Минимум 50 свечей для надёжного расчёта индикаторов
+        if df.empty or len(df) < 50:
+            result['passed'] = True  # Недостаточно данных - пропускаем
             return result
         
         from ta.momentum import RSIIndicator
         
-        # RSI
-        rsi_series = RSIIndicator(close=df['close'], window=14).rsi()
-        
-        # Проверка на пустую серию
-        if rsi_series.empty or len(rsi_series) == 0:
-            result['passed'] = True  # Недостаточно данных - пропускаем
+        try:
+            # RSI
+            rsi_series = RSIIndicator(close=df['close'], window=14).rsi()
+            
+            # Проверка на пустую серию
+            if rsi_series.empty or len(rsi_series) == 0:
+                result['passed'] = True  # Недостаточно данных - пропускаем
+                return result
+            
+            rsi = rsi_series.iloc[-1]
+        except Exception as e:
+            result['passed'] = True  # При ошибке - пропускаем
             return result
-        
-        rsi = rsi_series.iloc[-1]
         
         # Проверка на NaN
         if pd.isna(rsi):
@@ -757,33 +836,37 @@ class MarketFilters:
             result['reason'] = f"RSI {rsi:.1f} < {MarketFilters.RSI_MIN_SHORT} for SHORT"
             return result
         
-        # ADX
-        adx_indicator = ADXIndicator(
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            window=14
-        )
-        adx_series = adx_indicator.adx()
-        
-        # Проверка на пустую серию
-        if adx_series.empty or len(adx_series) == 0:
-            result['passed'] = True  # Недостаточно данных - пропускаем
-            return result
-        
-        adx = adx_series.iloc[-1]
-        
-        # Проверка на NaN
-        if pd.isna(adx):
-            result['passed'] = True
-            return result
-        
-        if adx < MarketFilters.ADX_MIN:
-            result['reason'] = f"ADX {adx:.1f} < {MarketFilters.ADX_MIN}"
-            return result
-        
-        if adx > MarketFilters.ADX_MAX:
-            result['reason'] = f"ADX {adx:.1f} > {MarketFilters.ADX_MAX}"
+        try:
+            # ADX
+            adx_indicator = ADXIndicator(
+                high=df['high'],
+                low=df['low'],
+                close=df['close'],
+                window=14
+            )
+            adx_series = adx_indicator.adx()
+            
+            # Проверка на пустую серию
+            if adx_series.empty or len(adx_series) == 0:
+                result['passed'] = True  # Недостаточно данных - пропускаем
+                return result
+            
+            adx = adx_series.iloc[-1]
+            
+            # Проверка на NaN
+            if pd.isna(adx):
+                result['passed'] = True
+                return result
+            
+            if adx < MarketFilters.ADX_MIN:
+                result['reason'] = f"ADX {adx:.1f} < {MarketFilters.ADX_MIN}"
+                return result
+            
+            if adx > MarketFilters.ADX_MAX:
+                result['reason'] = f"ADX {adx:.1f} > {MarketFilters.ADX_MAX}"
+                return result
+        except Exception as e:
+            result['passed'] = True  # При ошибке - пропускаем
             return result
         
         result['passed'] = True
@@ -807,8 +890,9 @@ class MarketFilters:
         """
         result = {'passed': False, 'reason': ''}
         
-        if df.empty or len(df) < 50:
-            result['passed'] = True
+        # Минимум 60 свечей для надёжного расчёта EMA50 + запас
+        if df.empty or len(df) < 60:
+            result['passed'] = True  # Недостаточно данных - пропускаем
             return result
         
         # Среднее тело за 20 свечей
@@ -882,25 +966,29 @@ class MarketFilters:
             return result
             
         # Наклон EMA50
-        ema50 = EMAIndicator(close=df['close'], window=50).ema_indicator()
-        ema50_recent = ema50.tail(10)
-        
-        # Проверка на NaN в EMA50
-        if ema50_recent.isna().any():
-            result['passed'] = True
-            return result
-        
-        slope_count = 0
-        for i in range(1, len(ema50_recent)):
-            if pd.isna(ema50_recent.iloc[i]) or pd.isna(ema50_recent.iloc[i-1]):
-                continue
-            if direction == 'LONG' and ema50_recent.iloc[i] > ema50_recent.iloc[i-1]:
-                slope_count += 1
-            elif direction == 'SHORT' and ema50_recent.iloc[i] < ema50_recent.iloc[i-1]:
-                slope_count += 1
-        
-        if slope_count < MarketFilters.EMA50_SLOPE_MIN_CANDLES:
-            result['reason'] = f"EMA50 slope {slope_count}/10 < {MarketFilters.EMA50_SLOPE_MIN_CANDLES}/10"
+        try:
+            ema50 = EMAIndicator(close=df['close'], window=50).ema_indicator()
+            ema50_recent = ema50.tail(10)
+            
+            # Проверка на NaN в EMA50
+            if ema50_recent.isna().any():
+                result['passed'] = True
+                return result
+            
+            slope_count = 0
+            for i in range(1, len(ema50_recent)):
+                if pd.isna(ema50_recent.iloc[i]) or pd.isna(ema50_recent.iloc[i-1]):
+                    continue
+                if direction == 'LONG' and ema50_recent.iloc[i] > ema50_recent.iloc[i-1]:
+                    slope_count += 1
+                elif direction == 'SHORT' and ema50_recent.iloc[i] < ema50_recent.iloc[i-1]:
+                    slope_count += 1
+            
+            if slope_count < MarketFilters.EMA50_SLOPE_MIN_CANDLES:
+                result['reason'] = f"EMA50 slope {slope_count}/10 < {MarketFilters.EMA50_SLOPE_MIN_CANDLES}/10"
+                return result
+        except Exception as e:
+            result['passed'] = True  # При ошибке - пропускаем
             return result
             
         # StdDev check

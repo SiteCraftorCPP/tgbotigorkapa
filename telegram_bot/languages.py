@@ -29,6 +29,9 @@ TRANSLATIONS = {
 
 ⚙️ Filter Control Panel:
 /filters - Open filter control panel
+
+📊 Reports:
+/report - Weekly signals report
 """,
         'cmd_help': 'See /start for all commands',
         
@@ -190,6 +193,9 @@ TRANSLATIONS = {
 
 ⚙️ Панель управления фильтрами:
 /filters - Открыть панель управления
+
+📊 Отчёты:
+/report - Еженедельный отчёт по сигналам
 """,
         'cmd_help': 'См. /start для всех команд',
         

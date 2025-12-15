@@ -78,25 +78,35 @@ class SignalCancellation:
             
             last = ta.df.iloc[-1]
             
+            # Проверка наличия необходимых колонок
+            if 'ema_50' not in ta.df.columns or 'ema_200' not in ta.df.columns:
+                return False
+            
             if direction == 'LONG':
                 # Для лонга: цена упала ниже EMA200
-                if last['close'] < last['ema_200']:
+                if not pd.isna(last.get('ema_200')) and last['close'] < last['ema_200']:
                     return True
                 
-                # Медвежий кросс EMA50/100
-                prev = ta.df.iloc[-2]
-                if prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
-                    return True
+                # Медвежий кросс EMA50/200
+                if len(ta.df) >= 2:
+                    prev = ta.df.iloc[-2]
+                    if not (pd.isna(prev.get('ema_50')) or pd.isna(prev.get('ema_200')) or 
+                            pd.isna(last.get('ema_50')) or pd.isna(last.get('ema_200'))):
+                        if prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
+                            return True
             
             else:  # SHORT
                 # Для шорта: цена поднялась выше EMA200
-                if last['close'] > last['ema_200']:
+                if not pd.isna(last.get('ema_200')) and last['close'] > last['ema_200']:
                     return True
                 
-                # Бычий кросс EMA50/100
-                prev = ta.df.iloc[-2]
-                if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
-                    return True
+                # Бычий кросс EMA50/200
+                if len(ta.df) >= 2:
+                    prev = ta.df.iloc[-2]
+                    if not (pd.isna(prev.get('ema_50')) or pd.isna(prev.get('ema_200')) or 
+                            pd.isna(last.get('ema_50')) or pd.isna(last.get('ema_200'))):
+                        if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
+                            return True
         
         except (IndexError, KeyError, AttributeError) as e:
             return False

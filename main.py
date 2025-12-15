@@ -22,14 +22,17 @@ class CryptoSignalBot:
     """Главный класс бота с поддержкой автоматического топ-200 монет"""
     
     # Настройки параллельной обработки
-    BATCH_SIZE = 40  # Размер батча для параллельной обработки
-    MAX_CONCURRENT_TASKS = 30  # Максимум одновременных задач
-    ANALYSIS_INTERVAL_CYCLES = 24  # Интервал анализа (24 цикла * 5 сек = 2 минуты)
+    BATCH_SIZE = 50  # Размер батча для параллельной обработки (увеличен, т.к. только 1 TF)
+    MAX_CONCURRENT_TASKS = 40  # Максимум одновременных задач (увеличен)
+    ANALYSIS_INTERVAL_CYCLES = 6  # Интервал анализа (6 циклов * 5 сек = 30 секунд)
     TOP_COINS_UPDATE_CYCLES = 720  # Обновление топ монет каждый час (720 * 5 сек = 3600 сек)
     DB_CLEANUP_CYCLES = 17280  # Очистка БД раз в сутки (17280 * 5 сек = 86400 сек)
     
+    # Фиксированный таймфрейм для анализа
+    SIGNAL_TIMEFRAME = '1h'
+    
     def __init__(self):
-        self.xt_client = XTClient()
+        self.xt_client = XTClient(use_binance_fallback=False)  # Отключаем Binance fallback
         self.telegram_bot = TelegramBot()
         self.deepseek = get_deepseek_client()
         self.is_running = False
@@ -69,6 +72,12 @@ class CryptoSignalBot:
         FilterSettings.get_all(force_reload=True)  # Принудительно загружает из БД
         FilterSettings._apply_to_filters()  # Применяет настройки к классам фильтров
         log_info("✅ Filter settings loaded from DB and applied to all filter classes")
+        
+        # Запуск планировщика еженедельных отчётов
+        from utils.weekly_report import WeeklyReportScheduler
+        self.report_scheduler = WeeklyReportScheduler(self.telegram_bot)
+        asyncio.create_task(self.report_scheduler.start())
+        log_info("✅ Weekly report scheduler started (Friday 8 PM EST)")
         
         # Автоматическое обновление торговых пар на топ-N (из настроек)
         from analysis.market_filters import MarketFilters
@@ -146,6 +155,7 @@ class CryptoSignalBot:
         """
         Параллельный анализ рынка для 200+ торговых пар
         Использует батчи для оптимальной производительности
+        ТОЛЬКО таймфрейм 1H
         """
         # Создаем semaphore если еще не создан (для Python 3.7 совместимости)
         if self._semaphore is None:
@@ -156,24 +166,19 @@ class CryptoSignalBot:
             return
         
         pairs = ConfigManager.get_trading_pairs()
-        timeframes = ConfigManager.get_timeframes()
+        timeframe = self.SIGNAL_TIMEFRAME  # Фиксированный таймфрейм 1H
         
-        total_combinations = len(pairs) * len(timeframes)
-        log_info(f"Starting parallel market analysis: {len(pairs)} pairs x {len(timeframes)} timeframes = {total_combinations} combinations")
+        log_info(f"Starting market analysis: {len(pairs)} pairs x 1H timeframe")
         
         start_time = time.time()
         
         # Предварительно загружаем BTC данные в кэш
-        log_info("Pre-loading BTC data to cache...")
         await btc_cache.get_btc_ohlcv_1m(self.xt_client)
         await btc_cache.get_btc_ohlcv_1h(self.xt_client)
         await btc_cache.get_btc_ticker(self.xt_client)
         
-        # Создаём все задачи
-        all_tasks = []
-        for pair in pairs:
-            for timeframe in timeframes:
-                all_tasks.append((pair, timeframe))
+        # Создаём все задачи (только 1H для каждой пары)
+        all_tasks = [(pair, timeframe) for pair in pairs]
         
         # Обрабатываем батчами
         results = []

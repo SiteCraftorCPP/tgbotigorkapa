@@ -14,7 +14,7 @@ class FilterSettings:
     """Хранилище настроек фильтров (в памяти, с возможностью сохранения в БД)"""
     
     # Версия миграций настроек, чтобы не перетирать вручную выставленные значения
-    MIGRATION_VERSION = 4
+    MIGRATION_VERSION = 6
 
     # Значения по умолчанию
     DEFAULTS = {
@@ -55,7 +55,7 @@ class FilterSettings:
         # (RR управляется логикой MEGABOT, не настраивается здесь)
         
         # === ТРЕНД И СТРУКТУРА ===
-        'max_ema50_distance': 3.0,  # ATR
+        'max_ema50_distance': 2.5,  # ATR
         'pullback_min': 0.3,  # ATR
         'pullback_max': 1.0,  # ATR
         'min_trend_candles': 0.333,  # 1 из 3 свечей (0.333) или N из 4
@@ -76,9 +76,9 @@ class FilterSettings:
         
         # === УРОВНИ ===
         'min_level_touches': 2,
-        'htf_volume_multiplier': 1.2,
+        'htf_volume_multiplier': 1.3,
         'min_opposite_distance': 1.8,  # ATR
-        'breakout_body_ratio': 50,  # %
+        'breakout_body_ratio': 55,  # %
     }
     
     _settings = None
@@ -89,6 +89,12 @@ class FilterSettings:
         if cls._settings is None or force_reload:
             cls._settings = cls.DEFAULTS.copy()
             cls._load_from_db()
+            
+            # При первом запуске: если baseline нет, сохраняем текущие значения как baseline
+            if cls._load_baseline_from_db() is None:
+                baseline = cls._settings.copy()
+                cls._save_baseline_to_db(baseline)
+        
         return cls._settings
     
     @classmethod
@@ -121,15 +127,72 @@ class FilterSettings:
     
     @classmethod
     def reset_all(cls):
-        """Сбросить все настройки к значениям по умолчанию"""
-        # Берём актуальные значения из БД (после миграций) как базовый пресет
-        baseline = cls.get_all(force_reload=True).copy()
-        # Обновляем DEFAULTS текущим базовым пресетом, чтобы кнопка "сброс"
-        # возвращала именно к сохранённым актуальным значениям
-        cls.DEFAULTS = baseline.copy()
-        cls._settings = baseline
-        cls._save_to_db()
+        """Сбросить все настройки к базовым значениям из БД"""
+        from utils.logger import log_info
+        
+        # Загружаем базовые значения из БД
+        baseline = cls._load_baseline_from_db()
+        if not baseline:
+            # Если baseline нет, используем текущие значения как baseline
+            baseline = cls.get_all(force_reload=True).copy()
+            cls._save_baseline_to_db(baseline)
+            log_info("[FilterSettings] Baseline created from current settings")
+        
+        # Применяем базовые значения
+        cls._settings = baseline.copy()
+        cls._save_to_db()  # Сохраняем как текущие настройки
         cls._apply_to_filters()
+        log_info("[FilterSettings] Settings reset to baseline values")
+    
+    @classmethod
+    def save_current_as_baseline(cls):
+        """Сохранить текущие настройки как базовые (для сброса)"""
+        from utils.logger import log_info
+        current = cls.get_all(force_reload=True).copy()
+        cls._save_baseline_to_db(current)
+        log_info("[FilterSettings] Current settings saved as baseline")
+    
+    @classmethod
+    def _load_baseline_from_db(cls) -> Optional[Dict]:
+        """Загрузить базовые настройки из БД"""
+        try:
+            from database.models import SessionLocal, BotConfig
+            db = SessionLocal()
+            try:
+                config = db.query(BotConfig).filter(
+                    BotConfig.key == 'filter_settings_baseline'
+                ).first()
+                if config and config.value:
+                    return json.loads(config.value)
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[FilterSettings] Error loading baseline from DB: {e}")
+        return None
+    
+    @classmethod
+    def _save_baseline_to_db(cls, settings: Dict):
+        """Сохранить базовые настройки в БД"""
+        try:
+            from database.models import SessionLocal, BotConfig
+            db = SessionLocal()
+            try:
+                config = db.query(BotConfig).filter(
+                    BotConfig.key == 'filter_settings_baseline'
+                ).first()
+                if config:
+                    config.value = json.dumps(settings)
+                else:
+                    config = BotConfig(
+                        key='filter_settings_baseline',
+                        value=json.dumps(settings)
+                    )
+                    db.add(config)
+                db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[FilterSettings] Error saving baseline to DB: {e}")
     
     @classmethod
     def reset_to_current(cls):
@@ -213,7 +276,7 @@ class FilterSettings:
             # ATR/структура
             'atr_min': 1.5,
             'atr_max': 9.0,
-            'max_ema50_distance': 3.0,
+            'max_ema50_distance': 2.5,
             'pullback_min': 0.3,
             'min_opposite_distance': 1.8,
             'max_candle_body_gap': 5.0,
@@ -221,8 +284,8 @@ class FilterSettings:
             'trend_neutral_threshold': 20,
             'trend_strong_threshold': 35,
             # Уровни
-            'htf_volume_multiplier': 1.2,
-            'breakout_body_ratio': 50,
+            'htf_volume_multiplier': 1.3,
+            'breakout_body_ratio': 55,
             # Индикаторы
             'rsi_max_long': 70,
             'rsi_min_short': 30,
@@ -284,6 +347,24 @@ class FilterSettings:
             cls._settings['eth_max_move_1h'] = 4.0
             changed = True
 
+        # Структура/уровни обновляем до новых целевых значений, если стоят старые дефолты
+        if cls._settings.get('max_ema50_distance') == 3.0:
+            cls._settings['max_ema50_distance'] = 2.5
+            changed = True
+        if cls._settings.get('htf_volume_multiplier') == 1.2:
+            cls._settings['htf_volume_multiplier'] = 1.3
+            changed = True
+        if cls._settings.get('breakout_body_ratio') == 50:
+            cls._settings['breakout_body_ratio'] = 55
+            changed = True
+
+        # Версия 6: жёсткое применение новых значений для логики 1H
+        if current_version < 6:
+            cls._settings['max_ema50_distance'] = 2.5
+            cls._settings['htf_volume_multiplier'] = 1.3
+            cls._settings['breakout_body_ratio'] = 55
+            changed = True
+
         # Фиксируем версию миграции, чтобы не применять её повторно
         if current_version < cls.MIGRATION_VERSION:
             cls._settings['_migration_version'] = cls.MIGRATION_VERSION
@@ -336,7 +417,7 @@ class FilterSettings:
             MarketFilters.MIN_LIQUIDITY_USDT = s['min_liquidity']
             MarketFilters.ATR_MIN_PERCENT = s['atr_min']
             MarketFilters.ATR_MAX_PERCENT = s['atr_max']
-            MarketFilters.MAX_ATR_DEVIATION = s['max_atr_deviation'] / 100
+            MarketFilters.MAX_ATR_DEVIATION = s['max_atr_deviation']
             MarketFilters.MAX_CANDLE_BODY_PERCENT = s['max_candle_body_gap']
             MarketFilters.MAX_HIGH_LOW_GAP_PERCENT = s['max_high_low_gap']
             MarketFilters.FUNDING_RATE_MIN = s['funding_rate_min'] / 100
@@ -400,6 +481,7 @@ class FilterSettings:
             SignalGenerator.MIN_TREND_CANDLES = s['min_trend_candles']
             SignalGenerator.IMPULSE_BODY_RATIO = s['impulse_body_ratio'] / 100
             SignalGenerator.SIGNAL_VOLUME_MULTIPLIER = s['signal_volume_multiplier']
+            SignalGenerator.EMA50_SLOPE_MIN_CANDLES = s['ema50_slope_min']
             # SL/TP и RR остаются в логике генератора и DeepSeek, не настраиваются здесь
             
             # Conservative Filters
@@ -487,9 +569,9 @@ class FilterPanel:
             'name': '📊 Тренд и структура',
             'emoji': '📊',
             'filters': [
-                ('max_ema50_distance', 'EMA50 дистанция', ' ATR', [1.5, 2.0, 2.5, 3.0, 4.0, 5.0]),
-                ('pullback_min', 'Pullback мин', ' ATR', [0.3, 0.4, 0.5, 0.6, 0.8]),
-                ('pullback_max', 'Pullback макс', ' ATR', [0.8, 0.9, 1.0, 1.1, 1.2]),
+                ('max_ema50_distance', 'EMA50 дистанция (1H)', ' ATR', [1.5, 2.0, 2.5, 3.0, 4.0, 5.0]),
+                ('pullback_min', 'Pullback мин (1H)', ' ATR', [0.3, 0.4, 0.5, 0.6, 0.8]),
+                ('pullback_max', 'Pullback макс (1H)', ' ATR', [0.8, 0.9, 1.0, 1.1, 1.2]),
                 ('min_trend_candles', 'Мин. тренд свечей', '/4', [0.333, 1, 2, 3, 4]),
                 ('trend_neutral_threshold', 'Порог нейтральности', ' score', [15, 20, 25, 30, 35]),
                 ('trend_strong_threshold', 'Порог сильного тренда', ' score', [30, 35, 40, 45, 50]),
@@ -514,10 +596,10 @@ class FilterPanel:
             'name': '📍 Уровни',
             'emoji': '📍',
             'filters': [
-                ('min_level_touches', 'Мин. касания', '', [1, 2, 3, 4, 5]),
-                ('htf_volume_multiplier', 'HTF объём', 'x', [1.1, 1.2, 1.3, 1.5, 2.0]),
+                ('min_level_touches', 'Мин. касания (HTF 1H)', '', [1, 2, 3, 4, 5]),
+                ('htf_volume_multiplier', 'HTF объём (1H)', 'x', [1.1, 1.2, 1.3, 1.5, 2.0]),
                 ('min_opposite_distance', 'До уровня', 'ATR', [1.2, 1.4, 1.6, 1.8, 2.0]),
-                ('breakout_body_ratio', 'Пробой тело', '%', [45, 50, 55, 60, 70]),
+                ('breakout_body_ratio', 'Пробой тело (1H)', '%', [45, 50, 55, 60, 70]),
             ]
         },
     }
@@ -548,8 +630,11 @@ class FilterPanel:
         
         # Дополнительные кнопки
         keyboard.append([
-            InlineKeyboardButton("📋 Текущие настройки", callback_data="fp_show_all"),
-            InlineKeyboardButton("🔄 Сбросить к базовым", callback_data="fp_reset_confirm")
+            InlineKeyboardButton("📋 Текущие настройки", callback_data="fp_show_all")
+        ])
+        keyboard.append([
+            InlineKeyboardButton("🔄 Сбросить к базовым", callback_data="fp_reset_confirm"),
+            InlineKeyboardButton("💾 Сохранить как базовые", callback_data="fp_save_baseline_confirm")
         ])
         
         keyboard.append([
@@ -817,31 +902,31 @@ class FilterPanel:
 ├ Volume contraction: <{volume_contraction_ratio}x среднего
 └ Паттерн: {pattern_status}
 
-📋 *ЛОГИЧЕСКИЕ ФИЛЬТРЫ (не настраиваются):*
+📋 *ЛОГИЧЕСКИЕ ФИЛЬТРЫ (TF = 1H):*
 
 🔄 *Тренд и структура:*
 ├ Запрет входа против тренда H1
 ├ Для лонга: HH или HL желательны (мягкая проверка)
 └ Для шорта: LL или LH желательны (мягкая проверка)
 
-🎯 *Сигнал • Вход:*
+🎯 *Сигнал • Вход (1H):*
 ├ Сигнал формируется только при полной валидности всех фильтров
 ├ Тип сигнала: лонг/шорт строго по направлению тренда и структуры
-├ Сигнал подаётся только после закрытия сигнальной свечи
-├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей
-├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта)
-├ Минимальная дистанция между HL и предыдущим HL ≥ 1.0 ATR
-├ Минимальная дистанция между LH и предыдущим LH ≥ 1.0 ATR
-├ Pullback перед сигналом в диапазоне 0.3–1.0 ATR
-├ EMA50 направлена в сторону сигнала; отклонение ≤ 2.5 ATR
-├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего)
-├ Пробой уровня: тело ≥ 55% свечи относительно уровня
-├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей
-├ Структура должна оставаться интактной (HH+HL для лонга / LL+LH для шорта)
+├ Сигнал подаётся только после закрытия сигнальной свечи (1H)
+├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей (1H)
+├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта) (1H)
+├ Минимальная дистанция между HL и предыдущим HL ≥ 1.0 ATR (1H)
+├ Минимальная дистанция между LH и предыдущим LH ≥ 1.0 ATR (1H)
+├ Pullback перед сигналом в диапазоне 0.3–1.0 ATR (1H)
+├ EMA50 направлена в сторону сигнала; отклонение ≤ 2.5 ATR (1H)
+├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего) (1H)
+├ Пробой уровня: тело ≥ 55% свечи относительно уровня (1H)
+├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей (1H)
+├ Структура должна оставаться интактной (1H)
 ├ Сигнал не подаётся при нарушении структуры в момент формирования
-├ Сигнал не подаётся, если область за ключевым уровнем по ликвидности заведомо "дырявая" (низкая глубина/объём по внутренним метрикам MEGABOT)
-├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей)
-└ Повторный сигнал возможен только после обновления структуры и нового паттерна
+├ Сигнал не подаётся, если область за ключевым уровнем по ликвидности заведомо "дырявая" (по внутренним метрикам MEGABOT)
+├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей) (1H)
+└ Повторный сигнал возможен только после обновления структуры и нового паттерна (1H)
 
 📊 *ВСЕГО ФИЛЬТРОВ: 63*
 ├ Настраиваемых: 46
@@ -905,7 +990,7 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
         )
         return
     
-    # Подтверждение сброса к текущим сохранённым значениям
+    # Подтверждение сброса к базовым значениям
     if data == "fp_reset_confirm":
         keyboard = [
             [
@@ -914,17 +999,42 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
             ]
         ]
         await query.edit_message_text(
-            "⚠️ *Сбросить к базовым значениям?*\n\nБудут применены и сохранены базовые значения (MEGABOT список).",
+            "⚠️ *Сбросить к базовым значениям?*\n\nВсе текущие настройки будут заменены на базовые значения, сохранённые в БД.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.MARKDOWN
         )
         return
     
-    # Выполнить сброс к текущим
+    # Выполнить сброс к базовым
     if data == "fp_reset_do":
         FilterSettings.reset_all()
         await query.edit_message_text(
-            "✅ *Сброс выполнен!*\n\nБазовые значения применены и сохранены.",
+            "✅ *Сброс выполнен!*\n\nВсе настройки сброшены к базовым значениям из БД.",
+            reply_markup=FilterPanel.get_main_menu(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # Подтверждение сохранения текущих как базовых
+    if data == "fp_save_baseline_confirm":
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Да, сохранить", callback_data="fp_save_baseline_do"),
+                InlineKeyboardButton("❌ Отмена", callback_data="fp_main")
+            ]
+        ]
+        await query.edit_message_text(
+            "💾 *Сохранить текущие настройки как базовые?*\n\nТекущие значения будут сохранены как базовые для кнопки сброса.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # Выполнить сохранение текущих как базовых
+    if data == "fp_save_baseline_do":
+        FilterSettings.save_current_as_baseline()
+        await query.edit_message_text(
+            "✅ *Сохранено!*\n\nТекущие настройки сохранены как базовые для сброса.",
             reply_markup=FilterPanel.get_main_menu(),
             parse_mode=ParseMode.MARKDOWN
         )

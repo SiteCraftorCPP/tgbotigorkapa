@@ -9,12 +9,16 @@ import config
 class TechnicalAnalysis:
     """Класс для технического анализа"""
     
+    # Минимальное количество свечей для корректного расчёта индикаторов
+    MIN_CANDLES_REQUIRED = 210  # EMA200 + запас
+    
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()
         
     def calculate_all_indicators(self) -> pd.DataFrame:
         """Расчёт всех индикаторов"""
-        if self.df.empty:
+        if self.df.empty or len(self.df) < self.MIN_CANDLES_REQUIRED:
+            # Недостаточно данных для надёжного расчёта
             return self.df
         
         # EMA
@@ -97,6 +101,14 @@ class TechnicalAnalysis:
         score = 0
         signals = []
         
+        # Проверка наличия необходимых колонок
+        if 'ema_50' not in self.df.columns or 'ema_200' not in self.df.columns:
+            return {'direction': 'NEUTRAL', 'score': 0}
+        
+        # Проверка на NaN
+        if pd.isna(last.get('ema_50')) or pd.isna(last.get('ema_200')):
+            return {'direction': 'NEUTRAL', 'score': 0}
+        
         # EMA тренд
         if last['close'] > last['ema_50'] > last['ema_200']:
             score += 30
@@ -106,18 +118,21 @@ class TechnicalAnalysis:
             signals.append('Медвежий тренд (EMA)')
         
         # Пересечение EMA
-        if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
-            score += 20
-            signals.append('Golden Cross')
-        elif prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
-            score -= 20
-            signals.append('Death Cross')
+        if len(self.df) >= 2:
+            if not (pd.isna(prev.get('ema_50')) or pd.isna(prev.get('ema_200'))):
+                if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
+                    score += 20
+                    signals.append('Golden Cross')
+                elif prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
+                    score -= 20
+                    signals.append('Death Cross')
         
         # VWAP
-        if last['close'] > last['vwap']:
-            score += 10
-        else:
-            score -= 10
+        if 'vwap' in self.df.columns and not pd.isna(last.get('vwap')):
+            if last['close'] > last['vwap']:
+                score += 10
+            else:
+                score -= 10
         
         return {
             'score': score,
@@ -136,30 +151,34 @@ class TechnicalAnalysis:
         signals = []
         
         # RSI
-        if last['rsi'] < config.RSI_OVERSOLD:
-            score += 25
-            signals.append(f'RSI перепродан ({last["rsi"]:.1f})')
-        elif last['rsi'] > config.RSI_OVERBOUGHT:
-            score -= 25
-            signals.append(f'RSI перекуплен ({last["rsi"]:.1f})')
-        elif 40 < last['rsi'] < 60:
-            score += 5 if last['rsi'] > 50 else -5
+        if 'rsi' in self.df.columns and not pd.isna(last.get('rsi')):
+            if last['rsi'] < config.RSI_OVERSOLD:
+                score += 25
+                signals.append(f'RSI перепродан ({last["rsi"]:.1f})')
+            elif last['rsi'] > config.RSI_OVERBOUGHT:
+                score -= 25
+                signals.append(f'RSI перекуплен ({last["rsi"]:.1f})')
+            elif 40 < last['rsi'] < 60:
+                score += 5 if last['rsi'] > 50 else -5
         
         # Stochastic
-        if last['stoch_k'] < 20 and last['stoch_k'] > last['stoch_d']:
-            score += 15
-            signals.append('Stoch бычий сигнал')
-        elif last['stoch_k'] > 80 and last['stoch_k'] < last['stoch_d']:
-            score -= 15
-            signals.append('Stoch медвежий сигнал')
+        if 'stoch_k' in self.df.columns and 'stoch_d' in self.df.columns:
+            if not (pd.isna(last.get('stoch_k')) or pd.isna(last.get('stoch_d'))):
+                if last['stoch_k'] < 20 and last['stoch_k'] > last['stoch_d']:
+                    score += 15
+                    signals.append('Stoch бычий сигнал')
+                elif last['stoch_k'] > 80 and last['stoch_k'] < last['stoch_d']:
+                    score -= 15
+                    signals.append('Stoch медвежий сигнал')
         
         # MACD
-        if last['macd_diff'] > 0:
-            score += 10
-            signals.append('MACD бычий')
-        else:
-            score -= 10
-            signals.append('MACD медвежий')
+        if 'macd_diff' in self.df.columns and not pd.isna(last.get('macd_diff')):
+            if last['macd_diff'] > 0:
+                score += 10
+                signals.append('MACD бычий')
+            else:
+                score -= 10
+                signals.append('MACD медвежий')
         
         return {
             'score': score,
@@ -176,12 +195,14 @@ class TechnicalAnalysis:
         score = 0
         signals = []
         
-        if last['volume'] > last['volume_ma'] * 1.5:
-            score += 20
-            signals.append('Высокий объём')
-        elif last['volume'] < last['volume_ma'] * 0.5:
-            score -= 10
-            signals.append('Низкий объём')
+        if 'volume' in self.df.columns and 'volume_ma' in self.df.columns:
+            if not (pd.isna(last.get('volume')) or pd.isna(last.get('volume_ma'))):
+                if last['volume'] > last['volume_ma'] * 1.5:
+                    score += 20
+                    signals.append('Высокий объём')
+                elif last['volume'] < last['volume_ma'] * 0.5:
+                    score -= 10
+                    signals.append('Низкий объём')
         
         return {
             'score': score,
@@ -199,21 +220,29 @@ class TechnicalAnalysis:
         signals = []
         
         # ATR относительно цены
-        atr_percent = (last['atr'] / last['close']) * 100
-        
-        if atr_percent > 2:
-            score += 15
-            signals.append(f'Высокая волатильность ({atr_percent:.2f}%)')
-        elif atr_percent < 0.5:
-            score -= 10
-            signals.append(f'Низкая волатильность ({atr_percent:.2f}%)')
-        else:
-            score += 5
+        if 'atr' in self.df.columns and 'close' in self.df.columns:
+            if not (pd.isna(last.get('atr')) or pd.isna(last.get('close')) or last.get('close') == 0):
+                atr_percent = (last['atr'] / last['close']) * 100
+                
+                if atr_percent > 2:
+                    score += 15
+                    signals.append(f'Высокая волатильность ({atr_percent:.2f}%)')
+                elif atr_percent < 0.5:
+                    score -= 10
+                    signals.append(f'Низкая волатильность ({atr_percent:.2f}%)')
+                else:
+                    score += 5
+                
+                return {
+                    'score': score,
+                    'signals': signals,
+                    'atr_percent': atr_percent
+                }
         
         return {
             'score': score,
             'signals': signals,
-            'atr_percent': atr_percent
+            'atr_percent': None
         }
     
     def calculate_support_resistance(self) -> dict:

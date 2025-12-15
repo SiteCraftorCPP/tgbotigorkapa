@@ -526,16 +526,20 @@ class XTClient:
                     try:
                         ticker = await self._run_in_executor(self.binance_exchange.fetch_ticker, symbol)
                         if ticker and ticker.get('last'):
-                            print(f"INFO: Использован Binance fallback для ticker {symbol}")
+                            # Тихая обработка - fallback успешен
                             return ticker
                     except Exception as binance_error:
-                        print(f"Ошибка получения ticker через Binance fallback для {symbol}: {binance_error}")
+                        # Тихая обработка - пара недоступна на Binance
+                        pass
                 
-                print(f"Ошибка получения тикера {symbol} через XT.com: {xt_error}")
+                # Логируем только в debug режиме - это нормально, если пара недоступна
+                # Не засоряем консоль обычными ошибками недоступности пар
+                pass
             
             return None
         except Exception as e:
-            print(f"Ошибка получения тикера {symbol}: {e}")
+            # Логируем только критические ошибки
+            # Обычные ошибки недоступности пар - это нормально
             return None
     
     async def get_funding_rate(self, symbol: str) -> Optional[float]:
@@ -633,13 +637,15 @@ class XTClient:
                             print(f"INFO: Использован Binance fallback для orderbook {symbol}")
                             return orderbook
                     except Exception as binance_error:
-                        print(f"Ошибка получения orderbook через Binance fallback для {symbol}: {binance_error}")
+                        # Тихая обработка - пара недоступна на Binance
+                        pass
                 
-                print(f"Orderbook недоступен для {symbol} через XT.com: {xt_error}")
+                # Тихая обработка - это нормально, если пара недоступна
+                pass
             
             return None
         except Exception as e:
-            print(f"Orderbook недоступен для {symbol}: {e}")
+            # Тихая обработка - обычные ошибки недоступности пар
             return None
     
     async def get_all_futures_symbols(self) -> List[str]:

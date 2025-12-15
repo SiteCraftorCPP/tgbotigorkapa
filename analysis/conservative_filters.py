@@ -18,7 +18,7 @@ class ConservativeFilters:
     MIN_LEVEL_TOUCHES = 2  # Минимум 2 касания уровня
     MIN_HTF_LEVEL_TOUCHES = 2  # HTF: минимум 2 касания
     HTF_VOLUME_MULTIPLIER = 1.3  # HTF: объём ≥ 1.3× среднего
-    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.2  # Дистанция до противоположного уровня ≥ 1.2 ATR
+    MIN_OPPOSITE_LEVEL_DISTANCE_ATR = 1.8  # Дистанция до противоположного уровня ≥ 1.8 ATR
     BREAKOUT_BODY_RATIO = 0.55  # Свеча пробоя: тело ≥ 55% выше/ниже уровня
     
     # ========================================================================

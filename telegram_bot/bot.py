@@ -70,8 +70,7 @@ class TelegramBot:
         # ВАЖНО: Telegram не поддерживает подчеркивания в командах, используем дефисы
         self.app.add_handler(CommandHandler("setpairs", self.cmd_set_pairs))
         self.app.add_handler(CommandHandler("setp", self.cmd_set_pairs))  # Короткий вариант
-        self.app.add_handler(CommandHandler("settimeframes", self.cmd_set_timeframes))
-        self.app.add_handler(CommandHandler("settf", self.cmd_set_timeframes))  # Короткий вариант
+        # Таймфреймы фиксированы на 1H - команды /settimeframes удалены
         
         # Команды для управления топ монетами
         self.app.add_handler(CommandHandler("topcoins", self.cmd_top_coins))
@@ -88,6 +87,10 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("panel", self.cmd_filters))  # Альтернатива
         self.app.add_handler(CommandHandler("filters_status", self.cmd_filters_status))  # Статус фильтров
         
+        # Команда отчёта
+        self.app.add_handler(CommandHandler("report", self.cmd_report))  # Еженедельный отчёт
+        self.app.add_handler(CommandHandler("weeklyreport", self.cmd_report))  # Альтернатива
+        
         # Команда помощи
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         
@@ -100,7 +103,7 @@ class TelegramBot:
             print(f"[DEBUG] Unknown command received: {command}")
             await update.message.reply_text(f"Unknown command: {command}")
         
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|settimeframes|settf|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|filters_status|help)"), unknown_command))
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|filters_status|report|weeklyreport|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
@@ -560,6 +563,31 @@ class TelegramBot:
             await handle_filter_panel_callback(update, context)
             return
         
+        # Обработка отчётов
+        if query.data.startswith("publish_report_"):
+            if not AdminManager.is_admin(user_id):
+                await query.answer("⛔ Доступ запрещён", show_alert=True)
+                return
+            
+            try:
+                days = int(query.data.split("_")[-1])
+                from utils.weekly_report import WeeklyReportGenerator
+                
+                report = WeeklyReportGenerator.generate_report(days=days)
+                message = WeeklyReportGenerator.format_report_message(report)
+                
+                # Публикуем в канал
+                await self.send_to_channel(message)
+                
+                await query.edit_message_text("✅ Отчёт опубликован в канал!")
+            except Exception as e:
+                await query.edit_message_text(f"❌ Ошибка: {str(e)}")
+            return
+        
+        if query.data == "cancel_report":
+            await query.edit_message_text("❌ Публикация отменена")
+            return
+        
         await query.answer()
         
         # Обработка выбора языка
@@ -808,35 +836,6 @@ class TelegramBot:
                 await update.message.reply_text(f"❌ Error: {str(e)}")
             except:
                 pass
-    
-    @admin_only
-    async def cmd_set_timeframes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Установка таймфреймов"""
-        try:
-            user_id = str(update.effective_user.id)
-            lang = get_user_lang(user_id)
-            
-            if not context.args:
-                current = ConfigManager.get_timeframes()
-                message = f"{t('current_timeframes', lang, timeframes=', '.join(current))}\n\n{t('timeframes_help', lang)}"
-                try:
-                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
-                except:
-                    await update.message.reply_text(message)
-                return
-            
-            timeframes = [tf.strip() for tf in context.args]
-            success = ConfigManager.set_timeframes(timeframes)
-            
-            if success:
-                await update.message.reply_text(t('timeframes_updated', lang, timeframes=', '.join(timeframes)))
-                await self.send_admin_message(t('timeframes_changed', lang, timeframes=', '.join(timeframes)))
-            else:
-                await update.message.reply_text(t('error', lang) + ": Failed to save timeframes")
-        except Exception as e:
-            await update.message.reply_text(f"Error: {str(e)}")
-            import traceback
-            traceback.print_exc()
     
     @admin_only
     async def cmd_top_coins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1098,6 +1097,50 @@ class TelegramBot:
             )
         except Exception as e:
             await update.message.reply_text(f"Ошибка: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    @admin_only
+    async def cmd_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Генерация еженедельного отчёта о сигналах"""
+        try:
+            from utils.weekly_report import WeeklyReportGenerator
+            
+            # Определяем период (по умолчанию 7 дней)
+            days = 7
+            if context.args:
+                try:
+                    days = int(context.args[0])
+                    if days < 1 or days > 90:
+                        days = 7
+                except ValueError:
+                    pass
+            
+            await update.message.reply_text(f"📊 Генерация отчёта за {days} дней...")
+            
+            # Генерируем отчёт
+            report = WeeklyReportGenerator.generate_report(days=days)
+            message = WeeklyReportGenerator.format_report_message(report)
+            
+            # Отправляем в чат
+            await update.message.reply_text(
+                message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Предлагаем опубликовать в канал
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [[
+                InlineKeyboardButton("📢 Опубликовать в канал", callback_data=f"publish_report_{days}"),
+                InlineKeyboardButton("❌ Отмена", callback_data="cancel_report")
+            ]]
+            await update.message.reply_text(
+                "Опубликовать этот отчёт в канал?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"Ошибка генерации отчёта: {str(e)}")
             import traceback
             traceback.print_exc()
     

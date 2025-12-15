@@ -14,6 +14,9 @@ from datetime import datetime
 class SignalGenerator:
     """Генератор торговых сигналов с полной системой фильтрации"""
     
+    # Хранение последней структуры для анти-дублирования
+    _last_structures = {}  # {(symbol, timeframe, direction): signature_tuple}
+    
     # Минимальный RR
     MIN_RR_RATIO = 1.5  # ≥ 1.5:1
     
@@ -33,7 +36,7 @@ class SignalGenerator:
     TP3_MAX_ATR = 9.0
     
     # Тренд и структура
-    MAX_EMA50_DISTANCE_ATR = 3.0  # Расстояние от EMA50 ≤ 3 ATR
+    MAX_EMA50_DISTANCE_ATR = 2.5  # Расстояние от EMA50 ≤ 2.5 ATR
     MAX_EMA50_DEVIATION_ATR = 2.5  # Отклонение от EMA50 ≤ 2.5 ATR
     PULLBACK_MIN_ATR = 0.3
     PULLBACK_MAX_ATR = 1.0
@@ -47,6 +50,9 @@ class SignalGenerator:
     # Импульс
     IMPULSE_BODY_RATIO = 0.60  # Тело импульсной свечи ≥ 60%
     CANCEL_IMPULSE_MULTIPLIER = 1.3  # Отмена при обратном импульсе ≥ 1.3×
+    
+    # EMA50 slope
+    EMA50_SLOPE_MIN_CANDLES = 6  # Наклон EMA50 в нужную сторону ≥ 6 из 10
     
     def __init__(self, symbol: str, timeframe: str, df: pd.DataFrame, 
                  df_higher: pd.DataFrame, client: XTClient):
@@ -79,9 +85,23 @@ class SignalGenerator:
         precision = self._get_price_precision(reference_price)
         return round(price, precision)
         
+    # Минимальное количество свечей для анализа
+    MIN_CANDLES_REQUIRED = 210  # EMA200 + запас для надёжных расчётов
+    
     async def generate_signal(self) -> Optional[Dict]:
         """Генерация сигнала с полной валидацией всех фильтров"""
         from utils.logger import log_filter_block, log_filter_pass
+        
+        # === ПРОВЕРКА: Достаточно ли данных для анализа ===
+        if self.df is None or len(self.df) < self.MIN_CANDLES_REQUIRED:
+            log_filter_block(self.symbol, self.timeframe, "InsufficientData", 
+                           f"Not enough candles: {len(self.df) if self.df is not None else 0} < {self.MIN_CANDLES_REQUIRED}")
+            return None
+        
+        if self.df_higher is None or len(self.df_higher) < 50:
+            log_filter_block(self.symbol, self.timeframe, "InsufficientData", 
+                           f"Not enough higher TF candles: {len(self.df_higher) if self.df_higher is not None else 0}")
+            return None
         
         # === ПРОВЕРКА: СИГНАЛ ПОДАЁТСЯ ТОЛЬКО ПОСЛЕ ЗАКРЫТИЯ СИГНАЛЬНОЙ СВЕЧИ ===
         if not self._check_candle_closed():
@@ -91,8 +111,8 @@ class SignalGenerator:
         # Расчёт индикаторов
         self.ta.calculate_all_indicators()
         
-        if self.ta.df.empty:
-            log_filter_block(self.symbol, self.timeframe, "DataCheck", "No data available")
+        if self.ta.df.empty or len(self.ta.df) < self.MIN_CANDLES_REQUIRED:
+            log_filter_block(self.symbol, self.timeframe, "DataCheck", "No data or insufficient data after indicator calculation")
             return None
         
         # === МУЛЬТИТАЙМФРЕЙМНЫЙ АНАЛИЗ ===
@@ -137,8 +157,14 @@ class SignalGenerator:
             return None
         
         # === ПРОВЕРКА MARKET STRUCTURE (HH/HL для LONG, LL/LH для SHORT) ===
-        if not self._check_market_structure(direction):
+        structure_ok, structure_sig = self._check_market_structure(direction)
+        if not structure_ok:
             log_filter_block(self.symbol, self.timeframe, "MarketStructure", f"Invalid structure for {direction}")
+            return None
+        # Анти-дублирование: повторный сигнал только при новой структуре
+        key = (self.symbol, self.timeframe, direction)
+        if structure_sig and SignalGenerator._last_structures.get(key) == structure_sig:
+            log_filter_block(self.symbol, self.timeframe, "MarketStructure", "Structure not updated since last signal")
             return None
         
         # === ИМПУЛЬСНАЯ СВЕЧА ===
@@ -149,6 +175,11 @@ class SignalGenerator:
         # === СВЕЧА СИГНАЛА ===
         if not self._check_signal_candle():
             log_filter_block(self.symbol, self.timeframe, "SignalCandle", "Signal candle validation failed")
+            return None
+        
+        # === EMA50 НАПРАВЛЕНИЕ И НАКЛОН ===
+        if not self._check_ema50_direction(direction):
+            log_filter_block(self.symbol, self.timeframe, "EMA50_Direction", "EMA50 direction/slope not aligned")
             return None
         
         # Текущая цена и ATR
@@ -227,6 +258,9 @@ class SignalGenerator:
         log_filter_pass(self.symbol, self.timeframe)
         from utils.logger import log_info
         log_info(f"[✅ ALL FILTERS PASSED] {self.symbol} {self.timeframe} {direction} - Signal will be generated!")
+        # Фиксируем текущую структуру, чтобы не повторять без обновления
+        if structure_sig:
+            SignalGenerator._last_structures[key] = structure_sig
         
         # Получение дополнительных данных
         trend = self.ta.get_trend_signal()
@@ -313,7 +347,7 @@ class SignalGenerator:
         return count >= required_count
     
     def _check_ema50_distance(self) -> bool:
-        """Расстояние от EMA50 (настраивается через max_ema50_distance)"""
+        """Расстояние от EMA50 (1H): отклонение ≤ 2.5 ATR (настраивается через max_ema50_distance)"""
         if len(self.ta.df) == 0:
             return True  # Недостаточно данных - пропускаем
         
@@ -331,7 +365,7 @@ class SignalGenerator:
         return distance <= max_distance
     
     def _check_pullback(self, direction: str) -> bool:
-        """Pullback в диапазоне ATR (настраивается через pullback_min/max)"""
+        """Pullback перед сигналом (1H): в диапазоне 0.3–1.0 ATR (настраивается через pullback_min/max)"""
         if len(self.df) < 20:
             return True  # Недостаточно данных - пропускаем
         
@@ -367,59 +401,64 @@ class SignalGenerator:
         
         return min_pullback <= pullback <= max_pullback
     
-    def _check_market_structure(self, direction: str) -> bool:
+    def _check_market_structure(self, direction: str):
         """
-        Проверка структуры рынка:
-        - Для лонга: желательны HH или HL
-        - Для шорта: желательны LL или LH
+        Строгая проверка структуры (1H):
+        - LONG: HH + HL обязательны, дистанция между HL ≥ 1.0 ATR (1H)
+        - SHORT: LL + LH обязательны, дистанция между LH ≥ 1.0 ATR (1H)
         """
-        if len(self.df) < 20:
-            return True  # Недостаточно данных - разрешаем
+        if len(self.df) < 30 or len(self.ta.df) < 30:
+            return False, None
         
         try:
-            recent = self.df.tail(min(30, len(self.df)))
+            atr = self.ta.df.iloc[-1].get('atr')
+            if pd.isna(atr) or atr is None or atr <= 0:
+                return False, None
             
-            # Находим локальные максимумы и минимумы
-            window = min(5, len(recent) // 4)
-            if window < 2:
-                return True  # Слишком мало данных - разрешаем
-            
-            highs = []
-            lows = []
-            
-            for i in range(window, len(recent) - window):
-                if i < len(recent) and i - window >= 0 and i + window < len(recent):
-                    if recent.iloc[i]['high'] == recent.iloc[i-window:i+window+1]['high'].max():
-                        highs.append(recent.iloc[i]['high'])
-                    
-                    if recent.iloc[i]['low'] == recent.iloc[i-window:i+window+1]['low'].min():
-                        lows.append(recent.iloc[i]['low'])
+            highs, lows = self._find_swings(window=2, lookback=80)
             
             if len(highs) < 2 or len(lows) < 2:
-                return True  # Недостаточно экстремумов - разрешаем
+                return False, None
             
-            # Анализ структуры
+            # Берём последние два экстремума по времени
+            last_high_1, last_high_2 = highs[-2][1], highs[-1][1]
+            last_low_1, last_low_2 = lows[-2][1], lows[-1][1]
+            
             if direction == 'LONG':
-                # Для лонга: HH + HL обязательны
-                higher_high = len(highs) >= 2 and highs[-1] > highs[-2]
-                higher_low = len(lows) >= 2 and lows[-1] > lows[-2]
-                if higher_high and higher_low:
-                    return True  # Идеальная структура
-                elif higher_high or higher_low:
-                    return True  # Хотя бы один элемент структуры есть
-                return True  # Разрешаем для тестирования
+                higher_high = last_high_2 > last_high_1
+                higher_low = last_low_2 > last_low_1
+                hl_distance_ok = (last_low_2 - last_low_1) >= atr
+                sig = ('LONG', round(last_high_1, 8), round(last_high_2, 8), round(last_low_1, 8), round(last_low_2, 8))
+                return higher_high and higher_low and hl_distance_ok, sig
             else:
-                # Для шорта: LL + LH обязательны
-                lower_low = len(lows) >= 2 and lows[-1] < lows[-2]
-                lower_high = len(highs) >= 2 and highs[-1] < highs[-2]
-                if lower_low and lower_high:
-                    return True  # Идеальная структура
-                elif lower_low or lower_high:
-                    return True  # Хотя бы один элемент структуры есть
-                return True  # Разрешаем для тестирования
-        except (IndexError, KeyError) as e:
-            # При ошибке доступа к индексам - разрешаем
-            return True
+                lower_low = last_low_2 < last_low_1
+                lower_high = last_high_2 < last_high_1
+                lh_distance_ok = (last_high_1 - last_high_2) >= atr
+                sig = ('SHORT', round(last_high_1, 8), round(last_high_2, 8), round(last_low_1, 8), round(last_low_2, 8))
+                return lower_low and lower_high and lh_distance_ok, sig
+        except Exception:
+            return False, None
+    
+    def _find_swings(self, window: int = 2, lookback: int = 80):
+        """Возвращает списки swing high/low в формате [(idx, price), ...]"""
+        highs = []
+        lows = []
+        
+        if self.df is None or self.df.empty:
+            return highs, lows
+        
+        recent = self.df.tail(min(lookback, len(self.df)))
+        
+        for i in range(window, len(recent) - window):
+            segment = recent.iloc[i - window:i + window + 1]
+            current = recent.iloc[i]
+            
+            if current['high'] == segment['high'].max():
+                highs.append((recent.index[i], current['high']))
+            if current['low'] == segment['low'].min():
+                lows.append((recent.index[i], current['low']))
+        
+        return highs, lows
     
     def _check_impulse_candle(self, direction: str) -> bool:
         """Минимум 1 импульсная свеча (настраивается через impulse_body_ratio)"""
@@ -449,14 +488,67 @@ class SignalGenerator:
     
     def _check_signal_candle(self) -> bool:
         """
-        Свеча сигнала (ОТКЛЮЧЕНА ДЛЯ ТЕСТИРОВАНИЯ)
+        Свеча сигнала (1H):
+        - тело ≥ 60% от диапазона
+        - тело ≤ 1.8× среднего тела за 20 свечей
+        - объём ≥ 1.15× среднего объёма за 20 свечей
         """
-        return True  # Всегда разрешаем для тестирования
+        if self.df is None or len(self.df) < 20:
+            return False
+        
+        signal_candle = self.df.iloc[-1]
+        
+        body = abs(signal_candle['close'] - signal_candle['open'])
+        full_range = signal_candle['high'] - signal_candle['low']
+        
+        if full_range <= 0:
+            return False
+        
+        body_ratio = body / full_range
+        if body_ratio < self.SIGNAL_CANDLE_BODY_MIN:
+            return False
+        
+        recent_20 = self.df.tail(20)
+        avg_body = (recent_20['close'] - recent_20['open']).abs().mean()
+        avg_volume = recent_20['volume'].mean()
+        
+        if avg_body and body > avg_body * self.SIGNAL_CANDLE_BODY_MAX_MULTIPLIER:
+            return False
+        
+        if avg_volume and signal_candle.get('volume') is not None:
+            if signal_candle['volume'] < avg_volume * self.SIGNAL_VOLUME_MULTIPLIER:
+                return False
+        
+        return True
+
+    def _check_ema50_direction(self, direction: str) -> bool:
+        """
+        EMA50 направлена в сторону сигнала (1H):
+        наклон EMA50 должен соответствовать направлению сигнала.
+        Отклонение по дистанции контролируется отдельно (_check_ema50_distance / deviation).
+        """
+        if len(self.ta.df) < 60:
+            return False
+        
+        ema50 = self.ta.df['ema_50'].tail(10)
+        if ema50.isna().any():
+            return False
+        
+        slope_count = 0
+        for i in range(1, len(ema50)):
+            if pd.isna(ema50.iloc[i]) or pd.isna(ema50.iloc[i-1]):
+                continue
+            if direction == 'LONG' and ema50.iloc[i] > ema50.iloc[i-1]:
+                slope_count += 1
+            elif direction == 'SHORT' and ema50.iloc[i] < ema50.iloc[i-1]:
+                slope_count += 1
+        
+        return slope_count >= self.EMA50_SLOPE_MIN_CANDLES
     
     def _check_candle_closed(self) -> bool:
         """
-        Проверка, что сигнальная свеча закрыта.
-        Сигнал подаётся только после закрытия сигнальной свечи.
+        Проверка, что сигнальная свеча закрыта (1H).
+        Сигнал подаётся только после закрытия сигнальной свечи (1H).
         """
         if self.df.empty or len(self.df) < 2:
             return False
@@ -468,7 +560,7 @@ class SignalGenerator:
         return len(self.df) >= 2
     
     def _check_ema50_deviation(self, current_price: float, atr: float) -> bool:
-        """Отклонение цены от EMA50 ≤ 2.5 ATR"""
+        """Отклонение цены от EMA50 (1H): ≤ 2.5 ATR"""
         if len(self.ta.df) == 0:
             return True  # Недостаточно данных - пропускаем
         
