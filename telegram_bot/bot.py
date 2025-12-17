@@ -278,6 +278,28 @@ class TelegramBot:
         except Exception as e:
             print(f"[ERROR] Failed to send admin message: {e}")
 
+    async def send_to_channel(self, message: str, parse_mode: str = ParseMode.MARKDOWN) -> bool:
+        """
+        Отправка текстового сообщения в основной канал.
+        Используется для еженедельных отчётов и других текстовых сообщений.
+        """
+        from utils.logger import logger
+        try:
+            if not config.TELEGRAM_CHANNEL_ID:
+                logger.error("[ERROR] TELEGRAM_CHANNEL_ID not configured!")
+                return False
+            
+            await self.bot.send_message(
+                chat_id=config.TELEGRAM_CHANNEL_ID,
+                text=message,
+                parse_mode=parse_mode
+            )
+            logger.info("[TELEGRAM] ✅ Message sent to channel successfully")
+            return True
+        except Exception as e:
+            logger.error(f"[TELEGRAM] ❌ Failed to send message to channel: {e}")
+            return False
+
     async def send_rejected_message(self, message: str):
         """
         Отправка сообщения в канал отклонённых сигналов.
