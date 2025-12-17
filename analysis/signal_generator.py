@@ -316,35 +316,85 @@ class SignalGenerator:
         return True
     
     def _check_mini_trend(self, direction: str) -> bool:
-        """Мини-тренд: минимум N из последних 3 или 4 свечей в направлении сигнала"""
-        # Если min_trend_candles = 0, фильтр отключен
+        """
+        MiniTrend (QUALITY):
+        - применяется только для LONG/SHORT
+        - считает свечи по направлению сигнала
+        - требует не только направление, но и минимальную "силу" (через тело и ATR)
+        """
         min_trend = SignalGenerator.MIN_TREND_CANDLES
         if min_trend == 0:
             return True
-        
-        # Определяем количество проверяемых свечей
-        # Если значение ≈ 0.333 (1/3), проверяем 3 свечи
-        # Иначе проверяем 4 свечи
+
+        direction = (direction or "").upper()
+        if direction not in ("LONG", "SHORT"):
+            return True
+
         if abs(min_trend - 0.333) < 0.001:
             window_size = 3
             required_count = 1
         else:
             window_size = 4
             required_count = int(min_trend)
-        
-        if len(self.df) < window_size:
-            return True  # Недостаточно данных - пропускаем
-        
-        recent = self.df.tail(window_size)
-        count = 0
-        
-        for idx, row in recent.iterrows():
-            if direction == 'LONG' and row['close'] > row['open']:
-                count += 1
-            elif direction == 'SHORT' and row['close'] < row['open']:
-                count += 1
-        
-        return count >= required_count
+
+        # Используем self.ta.df, так как там есть ATR после calculate_all_indicators()
+        if len(self.ta.df) < window_size:
+            return True
+
+        recent = self.ta.df.tail(window_size)
+
+        MIN_BODY_TO_RANGE = 0.45
+        MIN_BODY_TO_ATR = 0.15
+
+        has_atr = "atr" in self.ta.df.columns
+
+        good = 0
+        strong = 0
+
+        for _, row in recent.iterrows():
+            o = float(row["open"])
+            c = float(row["close"])
+            h = float(row.get("high", max(o, c)))
+            l = float(row.get("low", min(o, c)))
+
+            rng = max(h - l, 1e-12)
+            body = abs(c - o)
+
+            body_to_range = body / rng
+            
+            # Получаем ATR из self.ta.df
+            atr = None
+            body_to_atr = None
+            if has_atr:
+                atr_val = row.get("atr")
+                if atr_val is not None and not pd.isna(atr_val):
+                    atr = float(atr_val)
+                    if atr > 1e-12:
+                        body_to_atr = body / atr
+
+            in_dir = (c > o) if direction == "LONG" else (c < o)
+
+            strength_ok = (body_to_range >= MIN_BODY_TO_RANGE)
+            if body_to_atr is not None:
+                strength_ok = strength_ok and (body_to_atr >= MIN_BODY_TO_ATR)
+
+            if in_dir and strength_ok:
+                good += 1
+
+            strong_ok = (body_to_range >= 0.60)
+            if body_to_atr is not None:
+                strong_ok = strong_ok or (body_to_atr >= 0.25)
+
+            if in_dir and strong_ok:
+                strong += 1
+
+        if good < required_count:
+            return False
+
+        if strong < 1:
+            return False
+
+        return True
     
     def _check_ema50_distance(self) -> bool:
         """Расстояние от EMA50 (1H): отклонение ≤ 2.5 ATR (настраивается через max_ema50_distance)"""
@@ -366,6 +416,11 @@ class SignalGenerator:
     
     def _check_pullback(self, direction: str) -> bool:
         """Pullback перед сигналом (1H): в диапазоне 0.3–1.0 ATR (настраивается через pullback_min/max)"""
+        # Пропускаем проверку для NEUTRAL направления
+        direction = (direction or "").upper()
+        if direction not in ("LONG", "SHORT"):
+            return True
+        
         if len(self.df) < 20:
             return True  # Недостаточно данных - пропускаем
         
@@ -407,6 +462,11 @@ class SignalGenerator:
         - LONG: HH + HL обязательны, дистанция между HL ≥ 1.0 ATR (1H)
         - SHORT: LL + LH обязательны, дистанция между LH ≥ 1.0 ATR (1H)
         """
+        # Пропускаем проверку для NEUTRAL направления
+        direction = (direction or "").upper()
+        if direction not in ("LONG", "SHORT"):
+            return True, None
+        
         if len(self.df) < 30 or len(self.ta.df) < 30:
             return False, None
         
