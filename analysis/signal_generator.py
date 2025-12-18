@@ -335,7 +335,13 @@ class SignalGenerator:
             required_count = 1
         else:
             window_size = 4
-            required_count = int(min_trend)
+            # Поддержка дробных значений: 0.25->1, 0.5->2, 0.75->3, 1.0->4
+            # Если min_trend >= 1, то это абсолютное число свечей
+            if min_trend < 1.0:
+                required_count = int(round(min_trend * window_size))
+            else:
+                required_count = int(min_trend)
+            required_count = max(1, min(required_count, window_size))
 
         # Используем self.ta.df, так как там есть ATR после calculate_all_indicators()
         if len(self.ta.df) < window_size:
