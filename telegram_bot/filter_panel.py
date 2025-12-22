@@ -638,7 +638,6 @@ class FilterPanel:
             InlineKeyboardButton("📋 Текущие настройки", callback_data="fp_show_all")
         ])
         keyboard.append([
-            InlineKeyboardButton("🔄 Сбросить к базовым", callback_data="fp_reset_confirm"),
             InlineKeyboardButton("💾 Сохранить как базовые", callback_data="fp_save_baseline_confirm")
         ])
         
@@ -990,31 +989,6 @@ async def handle_filter_panel_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    
-    # Подтверждение сброса к базовым значениям
-    if data == "fp_reset_confirm":
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Да, сбросить", callback_data="fp_reset_do"),
-                InlineKeyboardButton("❌ Отмена", callback_data="fp_main")
-            ]
-        ]
-        await query.edit_message_text(
-            "⚠️ *Сбросить к базовым значениям?*\n\nВсе текущие настройки будут заменены на базовые значения, сохранённые в БД.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    
-    # Выполнить сброс к базовым
-    if data == "fp_reset_do":
-        FilterSettings.reset_all()
-        await query.edit_message_text(
-            "✅ *Сброс выполнен!*\n\nВсе настройки сброшены к базовым значениям из БД.",
-            reply_markup=FilterPanel.get_main_menu(),
             parse_mode=ParseMode.MARKDOWN
         )
         return

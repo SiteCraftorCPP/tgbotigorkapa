@@ -82,10 +82,6 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("dbstats", self.cmd_db_stats))  # Статистика БД
         self.app.add_handler(CommandHandler("cleanup", self.cmd_cleanup_db))  # Очистка БД
         
-        # Команда панели управления фильтрами
-        self.app.add_handler(CommandHandler("filters", self.cmd_filters))  # Панель фильтров
-        self.app.add_handler(CommandHandler("panel", self.cmd_filters))  # Альтернатива
-        self.app.add_handler(CommandHandler("filters_status", self.cmd_filters_status))  # Статус фильтров
         
         # Команда отчёта
         self.app.add_handler(CommandHandler("report", self.cmd_report))  # Еженедельный отчёт
@@ -103,7 +99,7 @@ class TelegramBot:
             print(f"[DEBUG] Unknown command received: {command}")
             await update.message.reply_text(f"Unknown command: {command}")
         
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|filters_status|report|weeklyreport|help)"), unknown_command))
+        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|topcoins|top|refresh|pairs|dbstats|cleanup|report|weeklyreport|help)"), unknown_command))
     
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
@@ -1073,54 +1069,6 @@ class TelegramBot:
             
         except Exception as e:
             await update.message.reply_text(f"Error: {str(e)}")
-    
-    @admin_only
-    async def cmd_filters(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Панель управления фильтрами"""
-        try:
-            user_id = str(update.effective_user.id)
-            lang = get_user_lang(user_id)
-            
-            # Загружаем текущие настройки
-            FilterSettings.get_all()
-            
-            message = """
-⚙️ *ПАНЕЛЬ УПРАВЛЕНИЯ ФИЛЬТРАМИ*
-
-Здесь вы можете настроить все параметры фильтрации сигналов.
-
-📊 Выберите категорию для настройки:
-"""
-            
-            await update.message.reply_text(
-                message.strip(),
-                reply_markup=FilterPanel.get_main_menu(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            
-        except Exception as e:
-            await update.message.reply_text(f"Error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-    
-    @admin_only
-    async def cmd_filters_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Вывод текущих настроек всех фильтров (то же, что кнопка '📋 Текущие настройки')"""
-        try:
-            # Загружаем текущие настройки
-            FilterSettings.get_all()
-            
-            # Используем тот же метод, что и кнопка в панели
-            text = FilterPanel.get_settings_text()
-            
-            await update.message.reply_text(
-                text,
-                parse_mode=ParseMode.MARKDOWN
-            )
-        except Exception as e:
-            await update.message.reply_text(f"Ошибка: {str(e)}")
-            import traceback
-            traceback.print_exc()
     
     @admin_only
     async def cmd_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
