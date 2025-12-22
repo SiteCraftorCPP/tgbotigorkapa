@@ -371,6 +371,14 @@ class FilterSettings:
         if current_volume != 1.03:
             cls._settings['signal_volume_multiplier'] = 1.03
             changed = True
+        
+        # Обновление импульсных фильтров (принудительно)
+        if cls._settings.get('impulse_body_ratio') != 43:
+            cls._settings['impulse_body_ratio'] = 43
+            changed = True
+        if cls._settings.get('impulse_avg_multiplier') != 1.05:
+            cls._settings['impulse_avg_multiplier'] = 1.05
+            changed = True
 
         # Фиксируем версию миграции, чтобы не применять её повторно
         if current_version < cls.MIGRATION_VERSION:
