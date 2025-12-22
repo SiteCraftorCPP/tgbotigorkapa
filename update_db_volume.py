@@ -11,11 +11,15 @@ import sys
 
 def get_db_path():
     """Определяет путь к БД"""
-    # Пробуем найти БД в разных местах
+    # Пробуем найти БД в разных местах с правильными именами
     possible_paths = [
+        'crypto_signals.db',  # Дефолтное имя из config.py
         'bot.db',
+        'data/crypto_signals.db',
         'data/bot.db',
+        os.path.expanduser('~/tgbotigorkapa/crypto_signals.db'),
         os.path.expanduser('~/tgbotigorkapa/bot.db'),
+        os.path.join(os.path.dirname(__file__), 'crypto_signals.db'),
         os.path.join(os.path.dirname(__file__), 'bot.db'),
     ]
     
@@ -25,9 +29,15 @@ def get_db_path():
     
     # Если не найдена, пробуем найти в текущей директории
     current_dir = os.getcwd()
-    db_path = os.path.join(current_dir, 'bot.db')
-    if os.path.exists(db_path):
-        return db_path
+    for db_name in ['crypto_signals.db', 'bot.db']:
+        db_path = os.path.join(current_dir, db_name)
+        if os.path.exists(db_path):
+            return db_path
+    
+    # Пробуем найти любой .db файл в текущей директории
+    for file in os.listdir(current_dir):
+        if file.endswith('.db'):
+            return os.path.join(current_dir, file)
     
     return None
 
@@ -37,8 +47,9 @@ def update_volume_setting():
     
     if not db_path:
         print("ERROR: Database file not found!")
-        print("Looking for: bot.db")
+        print("Looking for: crypto_signals.db or bot.db")
         print("Current directory:", os.getcwd())
+        print("Files in directory:", [f for f in os.listdir('.') if f.endswith('.db')])
         sys.exit(1)
     
     print(f"Database found: {db_path}")
