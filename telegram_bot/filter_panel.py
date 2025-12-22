@@ -63,14 +63,14 @@ class FilterSettings:
         'trend_strong_threshold': 35,  # Порог сильного тренда H1 (score)
         
         # === КАЧЕСТВО СИГНАЛА ===
-        'impulse_body_ratio': 55,  # %
+        'impulse_body_ratio': 60,  # % (синхронизировано с SignalGenerator)
         'impulse_avg_multiplier': 1.20,
         'max_dirty_candles': 4,
         'ema50_slope_min': 6,
         'max_bid_ask_imbalance': 40,  # %
         'max_stddev_ratio': 1.35,
         'max_saw_candles': 4,
-        'signal_volume_multiplier': 1.15,  # Объём импульсной свечи ≥ 1.15× среднего
+        'signal_volume_multiplier': 1.05,  # Объём импульсной свечи ≥ 1.05× среднего
         'volume_contraction_ratio': 0.9,  # Откат на пониженном объёме < 90% среднего
         'pattern_check_enabled': True,  # Включить проверку паттерна
         
@@ -298,7 +298,7 @@ class FilterSettings:
             'btc_pause_minutes': 35,
             'eth_max_move_1h': 4.0,
             # Качество
-            'impulse_body_ratio': 55,
+            'impulse_body_ratio': 60,
             'impulse_avg_multiplier': 1.20,
             'max_dirty_candles': 4,
             'ema50_slope_min': 6,
@@ -921,16 +921,15 @@ class FilterPanel:
 ├ EMA50 направлена в сторону сигнала; отклонение ≤ 2.5 ATR (1H)
 ├ Уровень подтверждён минимум 2 касаниями (HTF — объём ≥ 1.3× среднего) (1H)
 ├ Пробой уровня: тело ≥ 55% свечи относительно уровня (1H)
-├ Объём сигнальной свечи ≥ 1.15× среднего за 20 свечей (1H)
 ├ Структура должна оставаться интактной (1H)
 ├ Сигнал не подаётся при нарушении структуры в момент формирования
 ├ Сигнал не подаётся, если область за ключевым уровнем по ликвидности заведомо "дырявая" (по внутренним метрикам MEGABOT)
 ├ Сигнал отменяется при обратном импульсе (тело ≥ 1.3× среднего за 20 свечей) (1H)
 └ Повторный сигнал возможен только после обновления структуры и нового паттерна (1H)
 
-📊 *ВСЕГО ФИЛЬТРОВ: 63*
+📊 *ВСЕГО ФИЛЬТРОВ: 62*
 ├ Настраиваемых: 46
-└ Логических: 17
+└ Логических: 16
 """.format(
             **s, 
             pattern_status=pattern_status,

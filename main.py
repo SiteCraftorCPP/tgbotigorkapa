@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 from exchange.xt_client import XTClient
 from analysis.signal_generator import SignalGenerator
 from analysis.market_filters import MarketFilters

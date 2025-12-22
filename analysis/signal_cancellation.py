@@ -89,11 +89,11 @@ class SignalCancellation:
                 
                 # Медвежий кросс EMA50/200
                 if len(ta.df) >= 2:
-                prev = ta.df.iloc[-2]
+                    prev = ta.df.iloc[-2]
                     if not (pd.isna(prev.get('ema_50')) or pd.isna(prev.get('ema_200')) or 
                             pd.isna(last.get('ema_50')) or pd.isna(last.get('ema_200'))):
-                if prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
-                    return True
+                        if prev['ema_50'] > prev['ema_200'] and last['ema_50'] < last['ema_200']:
+                            return True
             
             else:  # SHORT
                 # Для шорта: цена поднялась выше EMA200
@@ -102,11 +102,11 @@ class SignalCancellation:
                 
                 # Бычий кросс EMA50/200
                 if len(ta.df) >= 2:
-                prev = ta.df.iloc[-2]
+                    prev = ta.df.iloc[-2]
                     if not (pd.isna(prev.get('ema_50')) or pd.isna(prev.get('ema_200')) or 
                             pd.isna(last.get('ema_50')) or pd.isna(last.get('ema_200'))):
-                if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
-                    return True
+                        if prev['ema_50'] < prev['ema_200'] and last['ema_50'] > last['ema_200']:
+                            return True
         
         except (IndexError, KeyError, AttributeError) as e:
             return False

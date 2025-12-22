@@ -45,7 +45,7 @@ class SignalGenerator:
     # Свеча сигнала
     SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
     SIGNAL_CANDLE_BODY_MAX_MULTIPLIER = 1.8  # ≤ 1.8× среднего
-    SIGNAL_VOLUME_MULTIPLIER = 1.15  # Объём ≥ 1.15× среднего
+    SIGNAL_VOLUME_MULTIPLIER = 1.05  # Объём ≥ 1.05× среднего
     
     # Импульс
     IMPULSE_BODY_RATIO = 0.60  # Тело импульсной свечи ≥ 60%
@@ -557,7 +557,6 @@ class SignalGenerator:
         Свеча сигнала (1H):
         - тело ≥ 60% от диапазона
         - тело ≤ 1.8× среднего тела за 20 свечей
-        - объём ≥ 1.15× среднего объёма за 20 свечей
         """
         if self.df is None or len(self.df) < 20:
             return False
@@ -576,14 +575,9 @@ class SignalGenerator:
         
         recent_20 = self.df.tail(20)
         avg_body = (recent_20['close'] - recent_20['open']).abs().mean()
-        avg_volume = recent_20['volume'].mean()
         
         if avg_body and body > avg_body * self.SIGNAL_CANDLE_BODY_MAX_MULTIPLIER:
             return False
-        
-        if avg_volume and signal_candle.get('volume') is not None:
-            if signal_candle['volume'] < avg_volume * self.SIGNAL_VOLUME_MULTIPLIER:
-                return False
         
         return True
 

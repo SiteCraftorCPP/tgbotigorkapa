@@ -101,14 +101,14 @@ class MarketFilters:
     # КАЧЕСТВО СИГНАЛА
     # ========================================================================
     
-    IMPULSE_BODY_RATIO = 0.55  # Импульсная свеча: тело ≥ 55%
+    IMPULSE_BODY_RATIO = 0.60  # Импульсная свеча: тело ≥ 60% (синхронизировано с SignalGenerator)
     IMPULSE_AVG_MULTIPLIER = 1.20  # Импульсная свеча ≥ 1.20× среднего тела
     MAX_DIRTY_CANDLES = 4  # Не более 4 грязных свечей за 10 свечей
     DIRTY_CANDLE_TAIL_RATIO = 0.60  # Грязная свеча: хвосты > 60%
     EMA50_SLOPE_MIN_CANDLES = 6  # Наклон EMA50 в нужную сторону ≥ 6 из 10
     MAX_BID_ASK_IMBALANCE = 0.40  # Дисбаланс Bid/Ask ≤ 40%
     MAX_STDDEV_RATIO = 1.35  # StdDev 10 свечей ≤ 1.35× StdDev 50 свечей
-    IMPULSE_VOLUME_MULTIPLIER = 1.15  # Объём импульсной свечи ≥ 1.15× среднего
+    IMPULSE_VOLUME_MULTIPLIER = 1.05  # Объём импульсной свечи ≥ 1.05× среднего (синхронизировано с SignalGenerator)
     MAX_SAW_CANDLES = 4  # Максимум 4 пила-свечи за 12 свечей
     SAW_CANDLE_TAIL_RATIO = 0.70  # Пила-свеча: хвосты > 70% тела
     
@@ -880,13 +880,13 @@ class MarketFilters:
     def check_signal_quality(df: pd.DataFrame, direction: str) -> Dict:
         """
         Проверка качества сигнала:
-        - Импульсная свеча ≥ 1.20× среднего тела
-        - Объём импульсной свечи ≥ 1.15× среднего объёма за 20 свечей
         - Не более 4 грязных свечей за 10 свечей
         - Наклон EMA50 в нужную сторону ≥ 6 из 10
         - StdDev 10 свечей ≤ 1.35× StdDev 50 свечей
         - Максимум 4 пила-свечи за 12 свечей
         - Паттерн: импульс → маленькая свеча / поглощение / пробой / пинбар
+        
+        Примечание: Импульсная свеча проверяется в signal_generator._check_impulse_candle()
         """
         result = {'passed': False, 'reason': ''}
         
@@ -895,49 +895,8 @@ class MarketFilters:
             result['passed'] = True  # Недостаточно данных - пропускаем
             return result
         
-        # Среднее тело за 20 свечей
-        recent_20 = df.tail(20)
-        avg_body = (recent_20['close'] - recent_20['open']).abs().mean()
-        avg_volume = recent_20['volume'].mean()
-        
-        # Проверка импульсной свечи: тело ≥ 1.25× среднего тела за 20 свечей
-        # И объём ≥ 1.15× среднего объёма за 20 свечей
-        recent_10 = df.tail(10)
-        impulse_found = False
-        impulse_body_ok = False
-        impulse_volume_ok = False
-        
-        for idx, row in recent_10.iterrows():
-            body = abs(row['close'] - row['open'])
-            full_range = row['high'] - row['low']
-            
-            if full_range == 0:
-                continue
-            
-            body_ratio = body / full_range
-            is_bullish = row['close'] > row['open']
-            is_bearish = row['close'] < row['open']
-            
-            # Импульсная свеча в нужном направлении
-            if body_ratio >= MarketFilters.IMPULSE_BODY_RATIO:
-                if (direction == 'LONG' and is_bullish) or (direction == 'SHORT' and is_bearish):
-                    impulse_found = True
-                    # Проверяем тело: ≥ 1.25× среднего тела за 20 свечей
-                    if avg_body > 0 and body >= avg_body * MarketFilters.IMPULSE_AVG_MULTIPLIER:
-                        impulse_body_ok = True
-                    # Проверяем объём: ≥ 1.15× среднего объёма за 20 свечей
-                    if avg_volume > 0 and row['volume'] >= avg_volume * MarketFilters.IMPULSE_VOLUME_MULTIPLIER:
-                        impulse_volume_ok = True
-                    if impulse_body_ok and impulse_volume_ok:
-                        break
-        
-        if impulse_found and not impulse_body_ok:
-            result['reason'] = f"Impulse candle body < {MarketFilters.IMPULSE_AVG_MULTIPLIER}× avg body"
-            return result
-        
-        if impulse_found and not impulse_volume_ok:
-            result['reason'] = f"Impulse candle volume < {MarketFilters.IMPULSE_VOLUME_MULTIPLIER}× avg"
-            return result
+        # Импульсная свеча проверяется в signal_generator._check_impulse_candle()
+        # Здесь проверку убираем, чтобы избежать дублирования и противоречий
         
         # Проверка паттерна: импульс → маленькая свеча / поглощение / пробой / пинбар
         # Используем настройку из ConservativeFilters (применяется через FilterSettings)
