@@ -108,7 +108,7 @@ class MarketFilters:
     EMA50_SLOPE_MIN_CANDLES = 6  # Наклон EMA50 в нужную сторону ≥ 6 из 10
     MAX_BID_ASK_IMBALANCE = 0.40  # Дисбаланс Bid/Ask ≤ 40%
     MAX_STDDEV_RATIO = 1.35  # StdDev 10 свечей ≤ 1.35× StdDev 50 свечей
-    IMPULSE_VOLUME_MULTIPLIER = 1.05  # Объём импульсной свечи ≥ 1.05× среднего (синхронизировано с SignalGenerator)
+    IMPULSE_VOLUME_MULTIPLIER = 1.03  # Объём импульсной свечи ≥ 1.03× среднего за 40 свечей (синхронизировано с SignalGenerator)
     MAX_SAW_CANDLES = 4  # Максимум 4 пила-свечи за 12 свечей
     SAW_CANDLE_TAIL_RATIO = 0.70  # Пила-свеча: хвосты > 70% тела
     

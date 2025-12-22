@@ -70,7 +70,7 @@ class FilterSettings:
         'max_bid_ask_imbalance': 40,  # %
         'max_stddev_ratio': 1.35,
         'max_saw_candles': 4,
-        'signal_volume_multiplier': 1.05,  # Объём импульсной свечи ≥ 1.05× среднего
+        'signal_volume_multiplier': 1.03,  # Объём импульсной свечи ≥ 1.03× среднего за 40 свечей
         'volume_contraction_ratio': 0.9,  # Откат на пониженном объёме < 90% среднего
         'pattern_check_enabled': True,  # Включить проверку паттерна
         
@@ -307,6 +307,7 @@ class FilterSettings:
             'max_saw_candles': 4,
             'volume_contraction_ratio': 0.9,
             'pattern_check_enabled': True,
+            'signal_volume_multiplier': 1.03,  # Объём импульсной свечи ≥ 1.03× среднего за 40 свечей
         }
         for key, target in target_defaults.items():
             ensure_default(key, target)
@@ -365,9 +366,10 @@ class FilterSettings:
             cls._settings['breakout_body_ratio'] = 55
             changed = True
         
-        # Обновление объёма импульсной/сигнальной свечи с 1.15 на 1.05
-        if cls._settings.get('signal_volume_multiplier') == 1.15:
-            cls._settings['signal_volume_multiplier'] = 1.05
+        # Обновление объёма импульсной/сигнальной свечи на 1.03 (принудительно)
+        current_volume = cls._settings.get('signal_volume_multiplier')
+        if current_volume != 1.03:
+            cls._settings['signal_volume_multiplier'] = 1.03
             changed = True
 
         # Фиксируем версию миграции, чтобы не применять её повторно
@@ -918,7 +920,7 @@ class FilterPanel:
 ├ Тип сигнала: лонг/шорт строго по направлению тренда и структуры
 ├ Сигнал подаётся только после закрытия сигнальной свечи (1H)
 ├ Свеча сигнала: тело ≥ 60% и ≤ 1.8× среднего тела за 20 свечей (1H)
-├ Объём импульсной свечи: ≥{signal_volume_multiplier}× среднего за 20 свечей (1H)
+├ Объём импульсной свечи: ≥{signal_volume_multiplier}× среднего за 40 свечей (1H)
 ├ Структурное подтверждение обязательно (HH+HL для лонга / LL+LH для шорта) (1H)
 ├ Минимальная дистанция между HL и предыдущим HL ≥ 1.0 ATR (1H)
 ├ Минимальная дистанция между LH и предыдущим LH ≥ 1.0 ATR (1H)

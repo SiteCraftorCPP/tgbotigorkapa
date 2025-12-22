@@ -45,7 +45,7 @@ class SignalGenerator:
     # Свеча сигнала
     SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
     SIGNAL_CANDLE_BODY_MAX_MULTIPLIER = 1.8  # ≤ 1.8× среднего
-    SIGNAL_VOLUME_MULTIPLIER = 1.05  # Объём ≥ 1.05× среднего
+    SIGNAL_VOLUME_MULTIPLIER = 1.03  # Объём ≥ 1.03× среднего за 40 свечей
     
     # Импульс
     IMPULSE_BODY_RATIO = 0.60  # Тело импульсной свечи ≥ 60%
@@ -530,14 +530,14 @@ class SignalGenerator:
         """
         Минимум 1 импульсная свеча:
         - тело ≥ 60% от диапазона
-        - объём ≥ 1.05× среднего за 20 свечей (настраивается через IMPULSE_VOLUME_MULTIPLIER)
+        - объём ≥ 1.03× среднего за 40 свечей (настраивается через IMPULSE_VOLUME_MULTIPLIER)
         """
-        if len(self.df) < 20:
+        if len(self.df) < 40:
             return True  # Недостаточно данных - пропускаем
         
         recent_10 = self.df.tail(10)
-        recent_20 = self.df.tail(20)
-        avg_volume = recent_20['volume'].mean()
+        recent_40 = self.df.tail(40)
+        avg_volume = recent_40['volume'].mean()
         
         for idx, row in recent_10.iterrows():
             body = abs(row['close'] - row['open'])
@@ -571,9 +571,9 @@ class SignalGenerator:
         Свеча сигнала (1H):
         - тело ≥ 60% от диапазона
         - тело ≤ 1.8× среднего тела за 20 свечей
-        - объём ≥ 1.05× среднего за 20 свечей
+        - объём ≥ 1.03× среднего за 40 свечей
         """
-        if self.df is None or len(self.df) < 20:
+        if self.df is None or len(self.df) < 40:
             return False
         
         signal_candle = self.df.iloc[-1]
@@ -594,10 +594,11 @@ class SignalGenerator:
         if avg_body and body > avg_body * self.SIGNAL_CANDLE_BODY_MAX_MULTIPLIER:
             return False
         
-        # Проверка объёма сигнальной свечи
+        # Проверка объёма сигнальной свечи (используем 40 свечей для среднего объёма)
         signal_volume = signal_candle.get('volume', 0)
         if signal_volume > 0:
-            avg_volume = recent_20['volume'].mean()
+            recent_40 = self.df.tail(40)
+            avg_volume = recent_40['volume'].mean()
             if avg_volume > 0:
                 volume_ratio = signal_volume / avg_volume
                 if volume_ratio < self.SIGNAL_VOLUME_MULTIPLIER:

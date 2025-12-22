@@ -50,10 +50,11 @@ class CryptoSignalBot:
         # Запуск Telegram бота (polling)
         log_info("Initializing Telegram bot...")
         
-        # Удаляем webhook если есть
+        # Удаляем webhook если есть (делаем это ДО инициализации Application)
         try:
             await self.telegram_bot.app.bot.delete_webhook(drop_pending_updates=True)
-            log_info("Webhook deleted")
+            log_info("Webhook deleted before initialization")
+            await asyncio.sleep(1)  # Небольшая задержка для гарантии
         except Exception as e:
             log_info(f"Webhook check: {e}")
         
@@ -615,41 +616,80 @@ class CryptoSignalBot:
     
     async def _run_telegram_polling(self):
         """Запуск Telegram polling в фоне"""
+        max_retries = 5
+        retry_delay = 10  # секунд
+        
         try:
-            log_info("Starting Telegram polling...")
-            
-            # Удаляем webhook перед polling
-            try:
-                await self.telegram_bot.app.bot.delete_webhook(drop_pending_updates=True)
-                log_info("Webhook deleted before polling")
-            except Exception as e:
-                log_info(f"Webhook check: {e}")
-            
-            # Запускаем polling - обновления обрабатываются автоматически через Application
-            await self.telegram_bot.app.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=None,
-                bootstrap_retries=-1
-            )
-            log_info("✅ Telegram polling started successfully - waiting for updates...")
-            
-            # Держим задачу активной - polling работает автоматически
-            # Application обрабатывает обновления через зарегистрированные обработчики
-            # Проверяем, что Application запущен и готов обрабатывать обновления
-            while self.is_running:
-                # Проверяем статус polling
-                if self.telegram_bot.app.updater.running:
-                    await asyncio.sleep(1)
-                else:
-                    log_error("Polling stopped unexpectedly!", "Telegram polling")
-                    break
+            for attempt in range(max_retries):
+                try:
+                    log_info(f"Starting Telegram polling... (attempt {attempt + 1}/{max_retries})")
                     
-        except asyncio.CancelledError:
-            log_info("Polling cancelled (normal shutdown)")
-        except Exception as e:
-            log_error(f"Error in Telegram polling: {str(e)}", "Telegram polling")
-            import traceback
-            log_error(f"Traceback: {traceback.format_exc()}", "Telegram polling")
+                    # Проверяем, не запущен ли уже polling
+                    if self.telegram_bot.app.updater.running:
+                        log_warning("Polling already running, stopping first...")
+                        try:
+                            await self.telegram_bot.app.updater.stop()
+                            await asyncio.sleep(2)  # Даем время на остановку
+                        except Exception as e:
+                            log_warning(f"Error stopping existing polling: {e}")
+                    
+                    # Удаляем webhook перед polling
+                    try:
+                        await self.telegram_bot.app.bot.delete_webhook(drop_pending_updates=True)
+                        log_info("Webhook deleted before polling")
+                        await asyncio.sleep(1)  # Небольшая задержка после удаления webhook
+                    except Exception as e:
+                        log_info(f"Webhook check: {e}")
+                    
+                    # Запускаем polling - обновления обрабатываются автоматически через Application
+                    await self.telegram_bot.app.updater.start_polling(
+                        drop_pending_updates=True,
+                        allowed_updates=None,
+                        bootstrap_retries=-1
+                    )
+                    log_info("✅ Telegram polling started successfully - waiting for updates...")
+                    
+                    # Держим задачу активной - polling работает автоматически
+                    # Application обрабатывает обновления через зарегистрированные обработчики
+                    # Проверяем, что Application запущен и готов обрабатывать обновления
+                    while self.is_running:
+                        # Проверяем статус polling
+                        if self.telegram_bot.app.updater.running:
+                            await asyncio.sleep(1)
+                        else:
+                            log_error("Polling stopped unexpectedly!", "Telegram polling")
+                            break
+                    
+                    # Если дошли сюда, значит polling успешно работал
+                    break
+                        
+                except asyncio.CancelledError:
+                    log_info("Polling cancelled (normal shutdown)")
+                    break
+                except Exception as e:
+                    error_str = str(e)
+                    # Проверяем, это ли ошибка конфликта
+                    if "Conflict" in error_str or "terminated by other getUpdates" in error_str:
+                        if attempt < max_retries - 1:
+                            log_warning(f"⚠️ Conflict detected: another bot instance may be running. Retrying in {retry_delay} seconds...")
+                            log_warning("💡 Make sure only ONE bot instance is running!")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2  # Увеличиваем задержку с каждой попыткой
+                            continue
+                        else:
+                            log_error("❌ Failed to start polling after multiple attempts due to conflict", "Telegram polling")
+                            log_error("💡 Please check if another bot instance is running and stop it first", "Telegram polling")
+                            raise
+                    else:
+                        log_error(f"Error in Telegram polling: {error_str}", "Telegram polling")
+                        import traceback
+                        log_error(f"Traceback: {traceback.format_exc()}", "Telegram polling")
+                        if attempt < max_retries - 1:
+                            log_warning(f"Retrying in {retry_delay} seconds...")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2
+                        else:
+                            raise
         finally:
             # Останавливаем polling при выходе
             try:
