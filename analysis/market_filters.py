@@ -101,8 +101,8 @@ class MarketFilters:
     # КАЧЕСТВО СИГНАЛА
     # ========================================================================
     
-    IMPULSE_BODY_RATIO = 0.60  # Импульсная свеча: тело ≥ 60% (синхронизировано с SignalGenerator)
-    IMPULSE_AVG_MULTIPLIER = 1.20  # Импульсная свеча ≥ 1.20× среднего тела
+    IMPULSE_BODY_RATIO = 0.43  # Импульсная свеча: тело ≥ 43% (синхронизировано с SignalGenerator)
+    IMPULSE_AVG_MULTIPLIER = 1.05  # Импульсная свеча ≥ 1.05× среднего тела
     MAX_DIRTY_CANDLES = 4  # Не более 4 грязных свечей за 10 свечей
     DIRTY_CANDLE_TAIL_RATIO = 0.60  # Грязная свеча: хвосты > 60%
     EMA50_SLOPE_MIN_CANDLES = 6  # Наклон EMA50 в нужную сторону ≥ 6 из 10

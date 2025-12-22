@@ -63,8 +63,8 @@ class FilterSettings:
         'trend_strong_threshold': 35,  # Порог сильного тренда H1 (score)
         
         # === КАЧЕСТВО СИГНАЛА ===
-        'impulse_body_ratio': 60,  # % (синхронизировано с SignalGenerator)
-        'impulse_avg_multiplier': 1.20,
+        'impulse_body_ratio': 43,  # % (синхронизировано с SignalGenerator)
+        'impulse_avg_multiplier': 1.05,
         'max_dirty_candles': 4,
         'ema50_slope_min': 6,
         'max_bid_ask_imbalance': 40,  # %
@@ -298,8 +298,8 @@ class FilterSettings:
             'btc_pause_minutes': 35,
             'eth_max_move_1h': 4.0,
             # Качество
-            'impulse_body_ratio': 60,
-            'impulse_avg_multiplier': 1.20,
+            'impulse_body_ratio': 43,
+            'impulse_avg_multiplier': 1.05,
             'max_dirty_candles': 4,
             'ema50_slope_min': 6,
             'max_bid_ask_imbalance': 40,
@@ -588,8 +588,8 @@ class FilterPanel:
             'name': '✨ Качество сигнала',
             'emoji': '✨',
             'filters': [
-                ('impulse_body_ratio', 'Импульс тело', '%', [50, 55, 60, 65, 70]),
-                ('impulse_avg_multiplier', 'Импульс множитель', 'x', [1.1, 1.2, 1.25, 1.3, 1.5]),
+                ('impulse_body_ratio', 'Импульс тело', '%', [40, 43, 45, 50, 55, 60, 65, 70]),
+                ('impulse_avg_multiplier', 'Импульс множитель', 'x', [1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.5]),
                 ('max_dirty_candles', 'Грязные свечи', '/10', [2, 3, 4, 5]),
                 ('ema50_slope_min', 'Наклон EMA50', '/10', [5, 6, 7, 8, 9]),
                 ('max_bid_ask_imbalance', 'Bid/Ask дисбаланс', '%', [25, 30, 35, 40, 50]),

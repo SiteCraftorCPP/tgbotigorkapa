@@ -48,7 +48,7 @@ class SignalGenerator:
     SIGNAL_VOLUME_MULTIPLIER = 1.03  # Объём ≥ 1.03× среднего за 40 свечей
     
     # Импульс
-    IMPULSE_BODY_RATIO = 0.60  # Тело импульсной свечи ≥ 60%
+    IMPULSE_BODY_RATIO = 0.43  # Тело импульсной свечи ≥ 43%
     CANCEL_IMPULSE_MULTIPLIER = 1.3  # Отмена при обратном импульсе ≥ 1.3×
     
     # EMA50 slope
@@ -529,7 +529,7 @@ class SignalGenerator:
     def _check_impulse_candle(self, direction: str) -> bool:
         """
         Минимум 1 импульсная свеча:
-        - тело ≥ 60% от диапазона
+        - тело ≥ 43% от диапазона
         - объём ≥ 1.03× среднего за 40 свечей (настраивается через IMPULSE_VOLUME_MULTIPLIER)
         """
         if len(self.df) < 40:
