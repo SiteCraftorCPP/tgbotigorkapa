@@ -27,9 +27,6 @@ TRANSLATIONS = {
 /dbstats - Database statistics
 /cleanup - Clean old signals
 
-⚙️ Filter Control Panel:
-/filters - Open filter control panel
-
 📊 Reports:
 /report - Weekly signals report
 """,
@@ -106,7 +103,7 @@ TRANSLATIONS = {
         'trading': 'Trading',
         'pairs': 'Pairs',
         'timeframes': 'Timeframes',
-        'use_commands': """Use /filters panel to manage all settings""",
+        'use_commands': """Use filter panel to manage all settings""",
         
         'bot_enabled': '✅ Bot enabled',
         'bot_disabled': '⏸ Bot disabled',
@@ -191,9 +188,6 @@ TRANSLATIONS = {
 /dbstats - Статистика БД
 /cleanup - Очистка старых сигналов
 
-⚙️ Панель управления фильтрами:
-/filters - Открыть панель управления
-
 📊 Отчёты:
 /report - Еженедельный отчёт по сигналам
 """,
@@ -270,7 +264,7 @@ TRANSLATIONS = {
         'trading': 'Торговля',
         'pairs': 'Пары',
         'timeframes': 'Таймфреймы',
-        'use_commands': """Используйте панель /filters для управления всеми настройками""",
+        'use_commands': """Используйте панель фильтров для управления всеми настройками""",
         
         'bot_enabled': '✅ Бот включен',
         'bot_disabled': '⏸ Бот выключен',
