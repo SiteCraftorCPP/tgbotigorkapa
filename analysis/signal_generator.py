@@ -527,13 +527,19 @@ class SignalGenerator:
         return highs, lows
     
     def _check_impulse_candle(self, direction: str) -> bool:
-        """Минимум 1 импульсная свеча (настраивается через impulse_body_ratio)"""
-        if len(self.df) < 10:
+        """
+        Минимум 1 импульсная свеча:
+        - тело ≥ 60% от диапазона
+        - объём ≥ 1.05× среднего за 20 свечей (настраивается через IMPULSE_VOLUME_MULTIPLIER)
+        """
+        if len(self.df) < 20:
             return True  # Недостаточно данных - пропускаем
         
-        recent = self.df.tail(10)
+        recent_10 = self.df.tail(10)
+        recent_20 = self.df.tail(20)
+        avg_volume = recent_20['volume'].mean()
         
-        for idx, row in recent.iterrows():
+        for idx, row in recent_10.iterrows():
             body = abs(row['close'] - row['open'])
             full_range = row['high'] - row['low']
             
@@ -545,6 +551,14 @@ class SignalGenerator:
             is_bearish = row['close'] < row['open']
             
             if body_ratio >= self.IMPULSE_BODY_RATIO:
+                # Проверка объёма импульсной свечи
+                impulse_volume = row.get('volume', 0)
+                if impulse_volume > 0 and avg_volume > 0:
+                    volume_ratio = impulse_volume / avg_volume
+                    # Используем IMPULSE_VOLUME_MULTIPLIER из MarketFilters (синхронизировано)
+                    if volume_ratio < MarketFilters.IMPULSE_VOLUME_MULTIPLIER:
+                        continue  # Объём недостаточен, пропускаем эту свечу
+                
                 if direction == 'LONG' and is_bullish:
                     return True
                 if direction == 'SHORT' and is_bearish:
@@ -557,6 +571,7 @@ class SignalGenerator:
         Свеча сигнала (1H):
         - тело ≥ 60% от диапазона
         - тело ≤ 1.8× среднего тела за 20 свечей
+        - объём ≥ 1.05× среднего за 20 свечей
         """
         if self.df is None or len(self.df) < 20:
             return False
@@ -578,6 +593,15 @@ class SignalGenerator:
         
         if avg_body and body > avg_body * self.SIGNAL_CANDLE_BODY_MAX_MULTIPLIER:
             return False
+        
+        # Проверка объёма сигнальной свечи
+        signal_volume = signal_candle.get('volume', 0)
+        if signal_volume > 0:
+            avg_volume = recent_20['volume'].mean()
+            if avg_volume > 0:
+                volume_ratio = signal_volume / avg_volume
+                if volume_ratio < self.SIGNAL_VOLUME_MULTIPLIER:
+                    return False
         
         return True
 

@@ -146,7 +146,7 @@ class MarketFilters:
     
     SIGNAL_CANDLE_BODY_MIN = 0.60  # Тело ≥ 60%
     SIGNAL_CANDLE_BODY_MAX_MULTIPLIER = 1.8  # Тело ≤ 1.8× среднего за 20 свечей
-    SIGNAL_VOLUME_MULTIPLIER = 1.15  # Объём ≥ 1.15× среднего за 20 свечей
+    SIGNAL_VOLUME_MULTIPLIER = 1.05  # Объём ≥ 1.05× среднего за 20 свечей
     
     # ========================================================================
     # STORAGE
