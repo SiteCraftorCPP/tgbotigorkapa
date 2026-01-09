@@ -20,6 +20,8 @@ class Signal(Base):
     entry_price = Column(Float, nullable=False)
     stop_loss = Column(Float, nullable=False)
     stop_loss_breakeven = Column(Float)  # SL после переноса в безубыток
+    reset_level = Column(Integer, nullable=True)  # Уровень ресета (1-5): -8%, -12%, -16%, -20%, -24%
+    reset_price = Column(Float, nullable=True)  # Цена ресета (цена входа + процент ресета)
     take_profit_1 = Column(Float, nullable=False)
     take_profit_2 = Column(Float, nullable=False)
     take_profit_3 = Column(Float, nullable=False)

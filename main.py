@@ -505,7 +505,25 @@ class CryptoSignalBot:
     
     async def _check_position_levels(self, signal: Signal, current_price: float, db):
         """Проверка достижения TP и SL для позиции"""
-        current_stop = signal.stop_loss_breakeven if signal.tp1_hit else signal.stop_loss
+        # 1. Проверка срабатывания ресета (если установлен) - ПЕРВЫМ ДЕЛОМ
+        if signal.reset_price is not None:
+            reset_triggered = False
+            if signal.direction == 'LONG' and current_price >= signal.reset_price:
+                reset_triggered = True
+            elif signal.direction == 'SHORT' and current_price <= signal.reset_price:
+                reset_triggered = True
+            
+            if reset_triggered:
+                await self._trigger_reset(signal, current_price, db)
+                # После срабатывания ресета stop_loss_breakeven уже установлен в _trigger_reset
+                # Обновляем объект из БД для корректного current_stop
+                db.refresh(signal)
+        
+        # 2. Проверка установки ресетов при падении цены
+        await self._check_reset_levels(signal, current_price, db)
+        
+        # 3. Определяем текущий стоп (после возможного срабатывания ресета)
+        current_stop = signal.stop_loss_breakeven if signal.stop_loss_breakeven else signal.stop_loss
         
         if signal.direction == 'LONG':
             # Проверка SL
@@ -612,6 +630,73 @@ class CryptoSignalBot:
             log_info(f"Stop-loss {signal.signal_id} @ {price}, PnL: {pnl:.2f}%")
         except Exception as e:
             log_error(f"Error closing stop for signal {signal.signal_id}: {str(e)}", "close_on_stop")
+            db.rollback()
+    
+    async def _check_reset_levels(self, signal: Signal, current_price: float, db):
+        """Проверка падения цены и установка ресетов"""
+        try:
+            # Ресеты не нужны, если уже достигнут TP1 (breakeven установлен)
+            if signal.tp1_hit:
+                return
+            
+            entry = signal.entry_price
+            if entry <= 0:
+                return
+            
+            # Расчёт текущего падения от цены входа
+            if signal.direction == 'LONG':
+                drawdown_pct = ((entry - current_price) / entry) * 100
+            else:  # SHORT
+                drawdown_pct = ((current_price - entry) / entry) * 100
+            
+            # Уровни падения и соответствующие ресеты
+            reset_configs = [
+                (8.0, 1, 3.0),   # -8% → RESET на +3%
+                (12.0, 2, 4.0),  # -12% → RESET на +4%
+                (16.0, 3, 5.0),  # -16% → RESET на +5%
+                (20.0, 4, 6.0),  # -20% → RESET на +6%
+                (24.0, 5, 7.0),  # -24% → RESET на +7%
+            ]
+            
+            # Проверяем, достигли ли мы нового уровня падения
+            for drop_pct, level, reset_pct in reset_configs:
+                if drawdown_pct >= drop_pct:
+                    # Если этот уровень ещё не установлен
+                    if signal.reset_level is None or signal.reset_level < level:
+                        # Устанавливаем ресет
+                        if signal.direction == 'LONG':
+                            reset_price = entry * (1 + reset_pct / 100)
+                        else:  # SHORT
+                            reset_price = entry * (1 - reset_pct / 100)
+                        
+                        signal.reset_level = level
+                        signal.reset_price = reset_price
+                        db.commit()
+                        
+                        log_info(f"🔄 RESET Level {level} установлен для {signal.signal_id}: падение {drawdown_pct:.1f}% → ресет на {reset_pct}% (цена: {reset_price:.6f})")
+                        break  # Устанавливаем только один уровень за раз
+            
+        except Exception as e:
+            log_error(f"Error checking reset levels for signal {signal.signal_id}: {str(e)}", "check_reset_levels")
+            db.rollback()
+    
+    async def _trigger_reset(self, signal: Signal, current_price: float, db):
+        """Срабатывание ресета - перевод стопа в безубыток"""
+        try:
+            entry = signal.entry_price
+            reset_level = signal.reset_level  # Сохраняем уровень до сброса
+            
+            # Устанавливаем стоп на цену входа (безубыток)
+            signal.stop_loss_breakeven = entry
+            # Сбрасываем уровень и цену ресета
+            signal.reset_level = None
+            signal.reset_price = None
+            db.commit()
+            
+            log_info(f"✅ RESET Level {reset_level} сработал для {signal.signal_id}: стоп перенесён в безубыток @ {entry}")
+                
+        except Exception as e:
+            log_error(f"Error triggering reset for signal {signal.signal_id}: {str(e)}", "trigger_reset")
             db.rollback()
     
     async def _run_telegram_polling(self):
