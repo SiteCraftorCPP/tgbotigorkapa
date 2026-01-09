@@ -21,15 +21,13 @@ git pull origin master
 
 ## 3. Обновление БД
 
+**ВАЖНО: Добавление полей для системы ресетов**
 ```bash
 cd ~/tgbotigorkapa
-python3 update_impulse_db.py
+python3 add_reset_fields.py
 ```
 
-Или вручную через SQLite:
-```bash
-sqlite3 crypto_signals.db "UPDATE bot_config SET value = json_replace(json_replace(value, '$.impulse_body_ratio', 43), '$.impulse_avg_multiplier', 1.05) WHERE key = 'filter_settings';"
-```
+Эта миграция добавляет поля `reset_level` и `reset_price` в таблицу `signals` для автоматических ресетов при падении цены.
 
 ## 4. Запуск бота
 
@@ -54,6 +52,6 @@ journalctl -u tgbotigorkapa -f
 ## Все команды одной строкой:
 
 ```bash
-cd ~/tgbotigorkapa && sudo systemctl stop tgbotigorkapa && git pull origin master && python3 update_impulse_db.py && sudo systemctl start tgbotigorkapa && sudo systemctl status tgbotigorkapa
+cd ~/tgbotigorkapa && sudo systemctl stop tgbotigorkapa && git pull origin master && python3 add_reset_fields.py && sudo systemctl start tgbotigorkapa && sudo systemctl status tgbotigorkapa
 ```
 
