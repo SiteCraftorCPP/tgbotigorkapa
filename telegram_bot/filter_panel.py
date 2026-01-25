@@ -413,109 +413,38 @@ class FilterSettings:
     
     @classmethod
     def _apply_to_filters(cls):
-        """Применить настройки к фильтрам"""
+        """Применить настройки к фильтрам МГНОВЕННО"""
         try:
             from analysis.market_filters import MarketFilters
             from analysis.signal_generator import SignalGenerator
             from analysis.conservative_filters import ConservativeFilters
+            from analysis.multi_timeframe import MultiTimeframeAnalysis
             
-            # Убеждаемся, что настройки загружены ИЗ БД (актуальные)
-            cls._settings = None  # Сбрасываем кэш
-            s = cls.get_all()  # Загружаем актуальные из БД
+            # Сбрасываем кэш, чтобы подтянулись свежие данные из БД
+            cls._settings = None 
+            s = cls.get_all()
             
-            # Market Filters
+            # --- РЫНОК ---
             MarketFilters.TOP_COINS_LIMIT = s['top_coins_limit']
             MarketFilters.MIN_FUTURES_VOLUME_USDT = s['min_futures_volume']
-            MarketFilters.MIN_VOLUME_60M_RATIO = s['min_volume_60m_ratio'] / 100
             MarketFilters.MAX_SPREAD_PERCENT = s['max_spread']
-            MarketFilters.MAX_AVG_SPREAD_15M_PERCENT = s['max_avg_spread_15m']
-            MarketFilters.MIN_LIQUIDITY_USDT = s['min_liquidity']
-            MarketFilters.ATR_MIN_PERCENT = s['atr_min']
-            MarketFilters.ATR_MAX_PERCENT = s['atr_max']
-            MarketFilters.MAX_ATR_DEVIATION = s['max_atr_deviation']
-            MarketFilters.MAX_CANDLE_BODY_PERCENT = s['max_candle_body_gap']
-            MarketFilters.MAX_HIGH_LOW_GAP_PERCENT = s['max_high_low_gap']
-            MarketFilters.FUNDING_RATE_MIN = s['funding_rate_min'] / 100
-            MarketFilters.FUNDING_RATE_MAX = s['funding_rate_max'] / 100
-            MarketFilters.MAX_OI_CHANGE_15M_PERCENT = s['max_oi_change_15m']
-            MarketFilters.MIN_CONTRACT_AGE_DAYS = s['min_contract_age_days']
             
-            # BTC/ETH Filters
-            MarketFilters.BTC_MAX_MOVE_1H = s['btc_max_move_1h']
-            MarketFilters.BTC_MAX_REVERSALS_30M = s['btc_max_reversals']
-            MarketFilters.BTC_PAUSE_MINUTES = s['btc_pause_minutes']
-            MarketFilters.BTC_STRONG_MOVE_1H = s['btc_strong_move_1h']
-            MarketFilters.ETH_MAX_MOVE_1H = s['eth_max_move_1h']
+            # --- ТРЕНД (MultiTimeframe) ---
+            MultiTimeframeAnalysis.TREND_NEUTRAL_THRESHOLD = s.get('trend_neutral_threshold', 20)
+            MultiTimeframeAnalysis.TREND_STRONG_THRESHOLD = s.get('trend_strong_threshold', 35)
             
-            # Time Filters
-            MarketFilters.TIME_GUARD_START_MINUTES = s['time_guard_start']
-            MarketFilters.TIME_GUARD_END_MINUTES = s['time_guard_end']
-            MarketFilters.MIN_HOURLY_VOLUME_RATIO = s['min_hourly_volume'] / 100
+            # --- КАЧЕСТВО ---
+            MarketFilters.EMA50_SLOPE_MIN_CANDLES = s.get('ema50_slope_min', 6)
             
-            # Indicators
-            MarketFilters.RSI_MAX_LONG = s['rsi_max_long']
-            MarketFilters.RSI_MIN_SHORT = s['rsi_min_short']
-            MarketFilters.ADX_MIN = s['adx_min']
-            MarketFilters.ADX_MAX = s['adx_max']
-            # MIN_RR_RATIO остаётся в логике MEGABOT, не настраивается здесь
+            # --- ГЕНЕРАТОР (Теперь параметры не статические, а берутся при создании объекта) ---
+            # Мы обновили SignalGenerator.__init__, так что он сам подхватит s
             
-            # Trend & Structure
-            MarketFilters.MAX_EMA50_DISTANCE_ATR = s['max_ema50_distance']
-            MarketFilters.PULLBACK_MIN_ATR = s['pullback_min']
-            MarketFilters.PULLBACK_MAX_ATR = s['pullback_max']
-            MarketFilters.MIN_TREND_CANDLES = s['min_trend_candles']
-            
-            # Multi-Timeframe Analysis
-            from analysis.multi_timeframe import MultiTimeframeAnalysis
-            MultiTimeframeAnalysis.TREND_NEUTRAL_THRESHOLD = s['trend_neutral_threshold']
-            MultiTimeframeAnalysis.TREND_STRONG_THRESHOLD = s['trend_strong_threshold']
-            
-            # Signal Quality
-            MarketFilters.IMPULSE_BODY_RATIO = s['impulse_body_ratio'] / 100
-            MarketFilters.IMPULSE_AVG_MULTIPLIER = s['impulse_avg_multiplier']
-            MarketFilters.MAX_DIRTY_CANDLES = s['max_dirty_candles']
-            MarketFilters.EMA50_SLOPE_MIN_CANDLES = s['ema50_slope_min']
-            MarketFilters.MAX_BID_ASK_IMBALANCE = s['max_bid_ask_imbalance'] / 100
-            MarketFilters.MAX_STDDEV_RATIO = s['max_stddev_ratio']
-            MarketFilters.MAX_SAW_CANDLES = s['max_saw_candles']
-            MarketFilters.IMPULSE_VOLUME_MULTIPLIER = s['signal_volume_multiplier']
-            
-            # Levels
-            MarketFilters.MIN_LEVEL_TOUCHES = s['min_level_touches']
-            MarketFilters.HTF_VOLUME_MULTIPLIER = s['htf_volume_multiplier']
-            MarketFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR = s['min_opposite_distance']
-            MarketFilters.BREAKOUT_BODY_RATIO = s['breakout_body_ratio'] / 100
-            
-            # SL/TP
-            # SL/TP и RR настраиваются внутри MEGABOT/DeepSeek, здесь не управляются
-            
-            # Signal Generator
-            SignalGenerator.MAX_EMA50_DISTANCE_ATR = s['max_ema50_distance']
-            SignalGenerator.PULLBACK_MIN_ATR = s['pullback_min']
-            SignalGenerator.PULLBACK_MAX_ATR = s['pullback_max']
-            SignalGenerator.MIN_TREND_CANDLES = s['min_trend_candles']
-            SignalGenerator.IMPULSE_BODY_RATIO = s['impulse_body_ratio'] / 100
-            SignalGenerator.SIGNAL_VOLUME_MULTIPLIER = s['signal_volume_multiplier']
-            SignalGenerator.EMA50_SLOPE_MIN_CANDLES = s['ema50_slope_min']
-            # SL/TP и RR остаются в логике генератора и DeepSeek, не настраиваются здесь
-            
-            # Conservative Filters
-            ConservativeFilters.MIN_LEVEL_TOUCHES = s['min_level_touches']
-            ConservativeFilters.MIN_HTF_LEVEL_TOUCHES = s['min_level_touches']
-            ConservativeFilters.HTF_VOLUME_MULTIPLIER = s['htf_volume_multiplier']
-            ConservativeFilters.MIN_OPPOSITE_LEVEL_DISTANCE_ATR = s['min_opposite_distance']
-            ConservativeFilters.BREAKOUT_BODY_RATIO = s['breakout_body_ratio'] / 100
-            ConservativeFilters.MAX_BID_ASK_IMBALANCE = s['max_bid_ask_imbalance'] / 100
-            ConservativeFilters.VOLUME_CONTRACTION_RATIO = s['volume_contraction_ratio']
-            ConservativeFilters.PATTERN_CHECK_ENABLED = s['pattern_check_enabled']
-            
-            # Логируем применение настроек
             from utils.logger import log_info
-            log_info("[FilterSettings] ✅ All filter settings applied to filter classes")
+            log_info(f"[FilterSettings] ✅ Applied {len(s)} settings to bot engine")
             
         except Exception as e:
             from utils.logger import log_error
-            log_error(f"[FilterSettings] ❌ Error applying to filters: {e}", "apply_filters")
+            log_error(f"[FilterSettings] ❌ Sync error: {e}", "apply_filters")
 
 
 class FilterPanel:
