@@ -914,7 +914,7 @@ class TelegramBot:
             user_id = str(update.effective_user.id)
             lang = get_user_lang(user_id)
             
-            await update.message.reply_text("🔄 Updating top 200 coins from CoinGecko...")
+            await update.message.reply_text("🔄 Updating top 200 coins from XT.com...")
             
             from utils.top_coins import update_trading_pairs_auto, TopCoinsService
             

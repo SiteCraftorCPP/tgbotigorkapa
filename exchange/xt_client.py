@@ -33,6 +33,24 @@ class XTExchange(ccxt.binance):
         if 'sapi' in self.urls.get('api', {}):
             del self.urls['api']['sapi']
         
+        # Переопределяем методы API для XT
+        self.api = {
+            'fapiPublic': {
+                'get': [
+                    'exchangeInfo',
+                    'klines',
+                    'ticker/24hr',
+                    'depth',
+                ],
+            },
+            'fapiPrivate': {
+                'get': [
+                    'balance',
+                    'account',
+                ],
+            },
+        }
+        
         self.has['fetchMarkets'] = True
         self.has['fetchCurrencies'] = False
         self.options['sandboxMode'] = False
@@ -50,6 +68,75 @@ class XTExchange(ccxt.binance):
     def fetch_currencies(self, params={}):
         return {}
     
+    def fetch_markets(self, params={}):
+        """Получает список рынков с XT.com"""
+        try:
+            # Вызываем напрямую через эндпоинт v1
+            response = self.fapiPublicGetExchangeInfo(params)
+            
+            # Обработка формата XT.com {"code": 0, "msg": "success", "data": {"symbols": [...]}}
+            data = response.get('data', {})
+            symbols = data.get('symbols', [])
+            
+            if not symbols:
+                if isinstance(data, list):
+                    symbols = data
+                elif isinstance(response, list):
+                    symbols = response
+            
+            result = []
+            for s in symbols:
+                id = s.get('symbol')
+                baseId = s.get('baseAsset', '').upper()
+                quoteId = s.get('quoteAsset', '').upper()
+                base = self.safe_currency_code(baseId)
+                quote = self.safe_currency_code(quoteId)
+                symbol = f"{base}/{quote}"
+                
+                result.append({
+                    'id': id,
+                    'symbol': symbol,
+                    'base': base,
+                    'quote': quote,
+                    'baseId': baseId,
+                    'quoteId': quoteId,
+                    'active': s.get('state') == 'TRADING',
+                    'type': 'future',
+                    'linear': True,
+                    'inverse': False,
+                    'spot': False,
+                    'swap': True,
+                    'future': True,
+                    'option': False,
+                    'margin': False,
+                    'contract': True,
+                    'contractSize': float(s.get('contractSize', 1.0)),
+                    'expiry': None,
+                    'expiryDatetime': None,
+                    'settle': quote,
+                    'settleId': quoteId,
+                    'precision': {
+                        'amount': int(s.get('quantityPrecision', 8)),
+                        'price': int(s.get('pricePrecision', 8)),
+                    },
+                    'limits': {
+                        'amount': {
+                            'min': float(s.get('minQty', 0)) if s.get('minQty') else None,
+                            'max': float(s.get('maxQty', 0)) if s.get('maxQty') else None,
+                        },
+                        'price': {
+                            'min': float(s.get('minPrice', 0)) if s.get('minPrice') else None,
+                            'max': float(s.get('maxPrice', 0)) if s.get('maxPrice') else None,
+                        },
+                        'cost': {'min': None, 'max': None},
+                    },
+                    'info': s,
+                })
+            return result
+        except Exception as e:
+            logger.error(f"Error fetching markets from XT: {e}")
+            return []
+
     def market(self, symbol):
         """Определяет параметры рынка для символа"""
         if self.markets and symbol in self.markets:

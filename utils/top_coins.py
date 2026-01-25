@@ -1,6 +1,6 @@
 """
 Сервис для автоматического получения топ монет по бирже XT (по объёму USDT).
-Без CoinGecko. Берём только реально торгуемые пары USDT на XT.
+Берём только реально торгуемые пары USDT на XT.
 """
 import asyncio
 from typing import List, Optional, Dict, Tuple
@@ -20,7 +20,7 @@ class TopCoinsService:
     
     # Явно исключаем нежелательные базы (стейблы/служебные тикеры)
     EXCLUDED_BASES = {
-        'USDT', 'USDC', 'BUSD', 'USDS', 'BSC-USD'
+        'USDT', 'USDC', 'BUSD', 'USDS', 'BSC-USD', 'DAI', 'FDUSD', 'TUSD'
     }
     
     @classmethod
@@ -55,7 +55,7 @@ class TopCoinsService:
             logger.warning("Using cached coins due to XT fetch error")
             return cls._cache['coins'][:limit]
         
-        # В крайних случаях — возвращаем то, что сохранено в конфиге (чтобы не подмешивать левое)
+        # В крайних случаях — возвращаем то, что сохранено в конфиге
         try:
             from database.config_manager import ConfigManager
             saved = ConfigManager.get_trading_pairs()
@@ -71,74 +71,64 @@ class TopCoinsService:
     async def _fetch_from_xt(cls, limit: int) -> List[str]:
         """
         Получить топ пар по объёму USDT с XT.
-        Используем fetch_tickers для объёмов, фильтруем только USDT, активные рынки.
-        ВАЛИДАЦИЯ: проверяем что пары реально торгуются (есть OHLCV данные).
         """
         from exchange.xt_client import XTClient
         
-        # Для топа используем только данные XT, без Binance fallback
         client = XTClient()
         
         # Загружаем markets
-        await client._run_in_executor(client.exchange.load_markets)
-        markets = client.exchange.markets or {}
+        logger.info("Fetching markets from XT...")
+        markets_list = await client._run_in_executor(client.exchange.fetch_markets)
+        markets = {m['symbol']: m for m in markets_list} if markets_list else {}
         
-        # Получаем тикеры (может быть тяжёлый запрос, но нужен для объёмов)
+        # Получаем тикеры для объёмов
+        logger.info("Fetching tickers from XT...")
         tickers_raw = await client._run_in_executor(client.exchange.fetch_tickers)
         
-        # Нормализуем тикеры в формат SYMBOL/QUOTE (XT возвращает без слеша, типа ARBUSDC)
+        if not tickers_raw:
+            logger.error("Failed to fetch tickers from XT")
+            return []
+
+        # Нормализуем тикеры
         tickers: Dict[str, dict] = {}
         for sym, t in tickers_raw.items():
-            if '/' in sym:
-                norm = sym
-            elif sym.endswith('USDT'):
-                norm = f"{sym[:-4]}/USDT"
-            elif sym.endswith('USDC'):
-                norm = f"{sym[:-4]}/USDC"
-            else:
-                continue
+            norm = sym
+            if '/' not in sym:
+                if sym.endswith('usdt'):
+                    norm = f"{sym[:-4].upper()}/USDT"
+                elif sym.endswith('usdc'):
+                    norm = f"{sym[:-4].upper()}/USDC"
             tickers[norm] = t or {}
         
-        # Если markets пустой (как в логах), строим минимальные market записи из тикеров USDT
+        # Если markets пустой, пробуем строить из тикеров
         if not markets:
-            markets = {}
+            logger.warning("Markets list empty, building from tickers...")
             for symbol in tickers.keys():
                 if not symbol.endswith('/USDT'):
                     continue
                 base = symbol.split('/')[0]
                 markets[symbol] = {
                     'symbol': symbol,
-                    'id': symbol.replace('/', ''),
-                    'base': base,
+                    'id': f"{base.lower()}_usdt",
+                    'base': base.upper(),
                     'quote': 'USDT',
                     'type': 'future',
-                    'swap': True,
-                    'contract': True,
-                    'linear': True,
-                    'inverse': False,
-                    'contractSize': 1.0,
                     'active': True,
-                    'precision': {'amount': 8, 'price': 8},
                 }
-            # сохраняем в клиент, чтобы downstream код видел markets
             client.exchange.markets = markets
         
-        pairs: List[Tuple[str, float]] = []
+        pairs_with_vol: List[Tuple[str, float]] = []
         
-        # Идём по markets, чтобы гарантировать фильтр контрактов/свапов
-        for market in markets.values():
-            symbol = market.get('symbol')
-            if not symbol or not symbol.endswith('/USDT'):
+        for symbol, market in markets.items():
+            if not symbol.endswith('/USDT'):
                 continue
             
-            base = symbol.split('/')[0]
+            base = market.get('base', symbol.split('/')[0])
             if base in cls.EXCLUDED_BASES or '-' in base:
                 continue
             
-            # Оставляем только фьючерсные свопы USDT
-            if not market.get('contract') or not market.get('swap'):
-                continue
-            if market.get('active') is False:
+            # Фильтр только активных фьючерсов
+            if market.get('type') != 'future' or not market.get('active'):
                 continue
             
             ticker = tickers.get(symbol, {})
@@ -148,47 +138,32 @@ class TopCoinsService:
                 last = ticker.get('last') or 0
                 vol = (base_vol * last) if base_vol and last else 0
             
-            if not vol or vol <= 0:
-                continue
-            
-            pairs.append((symbol, float(vol)))
+            if vol and vol > 0:
+                pairs_with_vol.append((symbol, float(vol)))
         
-        # Сортируем по объёму убыв.
-        pairs.sort(key=lambda x: x[1], reverse=True)
+        # Сортируем по объёму
+        pairs_with_vol.sort(key=lambda x: x[1], reverse=True)
         
-        # ВАЛИДАЦИЯ: проверяем что пары реально торгуются (есть данные OHLCV)
-        candidates = [p for p, _ in pairs[:max(limit, int(limit * 1.5))]]
-        logger.info(f"🔍 Validating {len(candidates)} top pairs from XT (checking OHLCV availability)...")
+        # Валидация OHLCV
+        candidates = [p for p, _ in pairs_with_vol[:max(limit, int(limit * 1.5))]]
+        logger.info(f"🔍 Validating {len(candidates)} top pairs from XT...")
         
-        # Параллельная валидация с ограничением по одновременным запросам
-        semaphore = asyncio.Semaphore(12)
-        warn_count = 0
-        max_warn = 30
-
+        semaphore = asyncio.Semaphore(10)
+        
         async def validate_pair(pair: str):
-            nonlocal warn_count
             async with semaphore:
                 try:
-                    df = await client.get_ohlcv(pair, '1m', limit=1)
+                    df = await client.get_ohlcv(pair, '1h', limit=5) # 1h instead of 1m
                     if df is not None and not df.empty:
                         return pair
-                    else:
-                        if warn_count < max_warn:
-                            logger.warning(f"⚠️ Pair {pair} from XT tickers has no OHLCV data - skipping")
-                        warn_count += 1
-                        return None
-                except Exception as e:
-                    if warn_count < max_warn:
-                        logger.warning(f"⚠️ Pair {pair} validation failed: {e} - skipping")
-                    warn_count += 1
-                    return None
+                except:
+                    pass
+                return None
 
         results = await asyncio.gather(*(validate_pair(p) for p in candidates))
         validated_pairs = [p for p in results if p][:limit]
         
-        if len(validated_pairs) < limit:
-            logger.warning(f"⚠️ Only {len(validated_pairs)}/{limit} pairs passed validation. Some XT tickers may not have OHLCV data.")
-        
+        logger.info(f"✅ Found {len(validated_pairs)} valid top pairs on XT")
         return validated_pairs
     
     @classmethod
@@ -238,10 +213,10 @@ async def update_trading_pairs_auto(limit: int = 100) -> bool:
             return False
         
         # Сохраняем в БД
-        success = ConfigManager.set_trading_pairs(top_pairs[:limit])
+        success = ConfigManager.set_trading_pairs(top_pairs)
         
         if success:
-            logger.info(f"✅ Auto-updated trading pairs from XT: {len(top_pairs[:limit])} pairs")
+            logger.info(f"✅ Auto-updated trading pairs from XT: {len(top_pairs)} pairs")
             return True
         else:
             logger.error("Failed to save trading pairs to database")
@@ -250,4 +225,3 @@ async def update_trading_pairs_auto(limit: int = 100) -> bool:
     except Exception as e:
         logger.error(f"Error in auto-update trading pairs (XT): {e}")
         return False
-
