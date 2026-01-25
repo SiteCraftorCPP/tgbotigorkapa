@@ -90,10 +90,32 @@ class TopCoinsService:
             # Сортируем по объему
             pairs_with_vol.sort(key=lambda x: x[1], reverse=True)
             
-            # Берем первые N
-            top_pairs = [p for p, _ in pairs_with_vol[:limit]]
-            logger.info(f"✅ Successfully fetched {len(top_pairs)} top pairs from XT V4 API")
-            return top_pairs
+            # Берем кандидатов (чуть больше чем лимит, чтобы отсеять невалидные)
+            candidates = [p for p, _ in pairs_with_vol[:max(limit, int(limit * 1.5))]]
+            logger.info(f"🔍 Validating {len(candidates)} top pairs from XT (checking OHLCV availability)...")
+            
+            from exchange.xt_client import XTClient
+            client = XTClient()
+            
+            # Параллельная валидация
+            semaphore = asyncio.Semaphore(15)
+            
+            async def validate_pair(pair: str):
+                async with semaphore:
+                    try:
+                        # Пробуем получить 1 свечу за 1 час
+                        df = await client.get_ohlcv(pair, '1h', limit=1)
+                        if df is not None and not df.empty:
+                            return pair
+                    except:
+                        pass
+                    return None
+
+            results = await asyncio.gather(*(validate_pair(p) for p in candidates))
+            validated_pairs = [p for p in results if p][:limit]
+            
+            logger.info(f"✅ Successfully fetched and validated {len(validated_pairs)} top pairs from XT")
+            return validated_pairs
             
         except Exception as e:
             logger.error(f"Failed to fetch from XT V4: {e}")
