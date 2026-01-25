@@ -77,7 +77,7 @@ class TopCoinsService:
         from exchange.xt_client import XTClient
         
         # Для топа используем только данные XT, без Binance fallback
-        client = XTClient(use_binance_fallback=False)
+        client = XTClient()
         
         # Загружаем markets
         await client._run_in_executor(client.exchange.load_markets)
