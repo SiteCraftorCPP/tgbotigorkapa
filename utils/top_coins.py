@@ -136,13 +136,21 @@ class TopCoinsService:
             'next_update': cls._cache['last_update'] + cls._cache['update_interval'] if cls._cache['last_update'] else None
         }
 
-async def update_trading_pairs_auto(limit: int = 100) -> bool:
+async def update_trading_pairs_auto(limit: int = 300) -> bool:
     from database.config_manager import ConfigManager
     try:
         top_pairs = await TopCoinsService.fetch_top_coins(limit=limit, force_refresh=True)
         if not top_pairs:
+            logger.error("Failed to fetch top pairs for auto-update")
             return False
-        return ConfigManager.set_trading_pairs(top_pairs)
+        
+        # Ограничиваем список ровно тем, что просил юзер (или лимитом)
+        top_pairs = top_pairs[:limit]
+        success = ConfigManager.set_trading_pairs(top_pairs)
+        if success:
+            logger.info(f"✅ Trading pairs auto-updated to top {len(top_pairs)} coins")
+            return True
+        return False
     except Exception as e:
         logger.error(f"Error in auto-update: {e}")
         return False

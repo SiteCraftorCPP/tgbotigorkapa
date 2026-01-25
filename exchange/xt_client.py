@@ -19,37 +19,19 @@ class XTExchange(ccxt.binance):
         
         super().__init__(config)
         
-        # XT фьючерсы используют v1 API
+        # XT фьючерсы используют v1 API, который является клоном Binance
+        # ВАЖНО: Базовый URL должен включать /fapi/v1 для корректной работы ccxt.binance методов
         self.urls['api'] = {
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
-            'fapiPublic': 'https://fapi.xt.com', # Убираем /fapi/v1 чтобы ccxt сам добавил
-            'fapiPrivate': 'https://fapi.xt.com',
+            'fapiPublic': 'https://fapi.xt.com/fapi/v1',
+            'fapiPrivate': 'https://fapi.xt.com/fapi/v1',
         }
         self.urls['test'] = self.urls['api']
         self.id = 'xt'
         
-        # Удаляем sapi, так как XT его не поддерживает
         if 'sapi' in self.urls.get('api', {}):
             del self.urls['api']['sapi']
-        
-        # Переопределяем методы API для XT
-        self.api = {
-            'fapiPublic': {
-                'get': [
-                    'exchangeInfo',
-                    'klines',
-                    'ticker/24hr',
-                    'depth',
-                ],
-            },
-            'fapiPrivate': {
-                'get': [
-                    'balance',
-                    'account',
-                ],
-            },
-        }
         
         self.has['fetchMarkets'] = True
         self.has['fetchCurrencies'] = False
@@ -57,7 +39,6 @@ class XTExchange(ccxt.binance):
         self.markets = {}
 
     def set_sandbox_mode(self, enabled):
-        """Жестко отключаем sandbox, так как у XT его нет"""
         self.sandboxMode = False
         if 'options' not in self.options:
             self.options = {}
@@ -68,27 +49,30 @@ class XTExchange(ccxt.binance):
         """Получает список рынков с XT.com через V4 API (более надежно)"""
         try:
             import requests
-            # Используем V4 API для списка рынков, так как fapi/v1/exchangeInfo часто пустой
+            # Используем V4 API для получения актуального списка всех фьючерсов
             url = "https://fapi.xt.com/future/market/v1/public/symbol/list"
             resp = requests.get(url, timeout=15)
             data = resp.json()
             
             if data.get('returnCode') != 0:
+                logger.error(f"XT fetch_markets API error: {data}")
                 return []
                 
             symbols = data.get('result', [])
             result = []
             for s in symbols:
+                # Нас интересуют только USDT пары
                 if s.get('quoteCurrency') != 'usdt':
                     continue
                 
+                # XT V4: btc_usdt -> XT V1/ccxt: BTC/USDT
                 base = s.get('baseCurrency', '').upper()
                 quote = 'USDT'
                 symbol = f"{base}/{quote}"
                 
                 result.append({
-                    'id': s.get('symbol'),
-                    'symbol': symbol,
+                    'id': s.get('symbol'), # btc_usdt
+                    'symbol': symbol,      # BTC/USDT
                     'base': base,
                     'quote': quote,
                     'baseId': base.lower(),
@@ -141,7 +125,7 @@ class XTExchange(ccxt.binance):
         if self.markets and symbol in self.markets:
             return self.markets[symbol]
         
-        # Fallback если не нашли в списке
+        # Fallback если не нашли в списке (для ccxt совместимости)
         base, quote = symbol.split('/') if '/' in symbol else (symbol[:-4], 'usdt')
         symbol_id = f"{base.lower()}_{quote.lower()}"
         return {
@@ -154,7 +138,7 @@ class XTExchange(ccxt.binance):
         }
 
 class XTClient:
-    """Клиент для работы с биржей XT.com без сторонних fallback-ов"""
+    """Клиент для работы с биржей XT.com"""
     
     def __init__(self):
         """Инициализация клиента XT.com"""
@@ -172,34 +156,31 @@ class XTClient:
                 exchange_config['secret'] = config.XT_API_SECRET
             
             self.exchange = XTExchange(exchange_config)
-            self.executor = ThreadPoolExecutor(max_workers=5)
+            self.executor = ThreadPoolExecutor(max_workers=10) # Увеличим для параллелизма
         except Exception as e:
-            print(f"ERROR: Не удалось создать клиент XT.com: {e}")
+            logger.error(f"ERROR: Не удалось создать клиент XT.com: {e}")
             raise
     
     async def _run_in_executor(self, func, *args, **kwargs):
         """Запуск синхронной функции ccxt в executor-е"""
         try:
-            task = asyncio.current_task()
-            loop = task.get_loop() if task else asyncio.get_event_loop()
-        except (RuntimeError, AttributeError):
-            loop = asyncio.get_event_loop()
-        
-        if loop.is_closed():
-            raise RuntimeError("Event loop is closed")
-        
-        if kwargs:
-            return await loop.run_in_executor(self.executor, lambda: func(*args, **kwargs))
-        else:
-            return await loop.run_in_executor(self.executor, lambda: func(*args))
+            loop = asyncio.get_running_loop()
+            if kwargs:
+                return await loop.run_in_executor(self.executor, lambda: func(*args, **kwargs))
+            else:
+                return await loop.run_in_executor(self.executor, lambda: func(*args))
+        except Exception as e:
+            logger.error(f"Executor error: {e}")
+            raise
         
     async def get_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
         """Получение OHLCV данных напрямую с XT.com"""
         try:
+            # Предварительная загрузка рынков если пустые
             if not self.exchange.markets:
                 await self._run_in_executor(self.exchange.fetch_markets)
             
-            # XT V1 Klines API (Binance clone)
+            # Используем ccxt fetch_ohlcv (который вызовет /fapi/v1/klines)
             ohlcv = await self._run_in_executor(
                 self.exchange.fetch_ohlcv,
                 symbol,
@@ -215,10 +196,17 @@ class XTClient:
                 )
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                 df.set_index('timestamp', inplace=True)
+                # Конвертируем в float чтобы избежать проблем с типами
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    df[col] = df[col].astype(float)
                 return df
             
             return pd.DataFrame()
         except Exception as e:
+            # Логируем только критические ошибки, игнорим 404/400 для мусорных пар
+            err_msg = str(e).lower()
+            if "not found" not in err_msg and "invalid" not in err_msg:
+                logger.debug(f"XT API OHLCV error for {symbol}: {e}")
             return pd.DataFrame()
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
