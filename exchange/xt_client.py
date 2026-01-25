@@ -19,6 +19,7 @@ class XTExchange(ccxt.binance):
         
         super().__init__(config)
         
+        # XT фьючерсы используют v1 API
         self.urls['api'] = {
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
@@ -135,6 +136,24 @@ class XTExchange(ccxt.binance):
             'contract': True,
         }
 
+    def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
+        """Переопределяем для исправления KeyError: 0 (XT возвращает data: [...])"""
+        market = self.market(symbol)
+        request = {
+            'symbol': market['id'],
+            'interval': self.timeframes.get(timeframe, timeframe),
+        }
+        if limit is not None:
+            request['limit'] = limit
+        
+        response = self.fapiPublicGetKlines(self.extend(request, params))
+        
+        # Исправление KeyError: 0
+        # XT.com возвращает {"returnCode": 0, "msgInfo": "success", "result": [...]}
+        # или {"code": 0, "data": [...]}
+        data = response.get('result') or response.get('data') or []
+        return self.parse_ohlcvs(data, market, timeframe, since, limit)
+
 class XTClient:
     """Клиент для работы с биржей XT.com"""
     
@@ -165,7 +184,6 @@ class XTClient:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self.executor, func, *args)
         except Exception as e:
-            # Логируем полный текст ошибки, а не только e (которое может быть 0)
             import traceback
             logger.error(f"Executor critical error: {type(e).__name__}: {e}")
             logger.error(traceback.format_exc())
@@ -198,7 +216,6 @@ class XTClient:
             
             return pd.DataFrame()
         except Exception as e:
-            # Ошибки уровня OHLCV не должны ломать executor
             return pd.DataFrame()
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
