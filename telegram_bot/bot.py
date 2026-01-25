@@ -48,35 +48,12 @@ class TelegramBot:
     
     def __init__(self):
         self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
-        self.app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+        # Увеличиваем таймауты для стабильности на слабом VPS
+        self.app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).read_timeout(30).write_timeout(30).build()
         self._setup_handlers()
-        self._flood_control_blocked_count = 0  # Счетчик заблокированных сигналов
-        self._last_flood_notification_time = None  # Время последнего уведомления
-        self.external_queue = None # Очередь для сигналов из других потоков
+        self._flood_control_blocked_count = 0  
+        self._last_flood_notification_time = None
 
-    async def _queue_processor(self):
-        """Процессор очереди сигналов (внутри асинхронного цикла бота)"""
-        from utils.logger import logger
-        import asyncio
-        while True:
-            try:
-                if self.external_queue and not self.external_queue.empty():
-                    item = self.external_queue.get_nowait()
-                    if item['type'] == 'signal':
-                        await self.send_signal(item['data'])
-                    elif item['type'] == 'admin_msg':
-                        await self.send_admin_message(item['data'])
-                    elif item['type'] == 'channel_msg':
-                        await self.send_to_channel(item['data'])
-                    self.external_queue.task_done()
-            except Exception as e:
-                logger.error(f"Queue processor error: {e}")
-            await asyncio.sleep(0.1)
-
-    async def post_init(self, application):
-        """Запуск фонового процессора после инициализации"""
-        asyncio.create_task(self._queue_processor())
-    
     def _setup_handlers(self):
         """Настройка обработчиков команд"""
         # Публичные команды
@@ -86,49 +63,18 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("week", self.cmd_week))
         self.app.add_handler(CommandHandler("language", self.cmd_language))
         
-        # Админ команды - управление ботом
+        # Админ команды
         self.app.add_handler(CommandHandler("enable", self.cmd_enable))
         self.app.add_handler(CommandHandler("disable", self.cmd_disable))
-        
-        # Админ команды - настройка параметров
-        # ВАЖНО: Telegram не поддерживает подчеркивания в командах, используем дефисы
         self.app.add_handler(CommandHandler("setpairs", self.cmd_set_pairs))
-        self.app.add_handler(CommandHandler("setp", self.cmd_set_pairs))  # Короткий вариант
-        # Таймфреймы фиксированы на 1H - команды /settimeframes удалены
-        
-        # Команды для управления топ монетами
         self.app.add_handler(CommandHandler("topcoins", self.cmd_top_coins))
-        self.app.add_handler(CommandHandler("top", self.cmd_top_coins))  # Короткий вариант
-        self.app.add_handler(CommandHandler("refresh", self.cmd_refresh_coins))  # Принудительное обновление
-        self.app.add_handler(CommandHandler("pairs", self.cmd_list_pairs))  # Показать текущий список
-        
-        # Команды для управления БД
-        self.app.add_handler(CommandHandler("dbstats", self.cmd_db_stats))  # Статистика БД
-        self.app.add_handler(CommandHandler("cleanup", self.cmd_cleanup_db))  # Очистка БД
-        
-        
-        # Команда панели управления фильтрами
-        self.app.add_handler(CommandHandler("filters", self.cmd_filters))  # Панель фильтров
-        self.app.add_handler(CommandHandler("panel", self.cmd_filters))  # Альтернатива
-        
-        # Команда отчёта
-        self.app.add_handler(CommandHandler("report", self.cmd_report))  # Еженедельный отчёт
-        self.app.add_handler(CommandHandler("weeklyreport", self.cmd_report))  # Альтернатива
-        
-        # Команда помощи
+        self.app.add_handler(CommandHandler("refresh", self.cmd_refresh_coins))
+        self.app.add_handler(CommandHandler("pairs", self.cmd_list_pairs))
+        self.app.add_handler(CommandHandler("filters", self.cmd_filters))
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         
-        # Callback handlers для кнопок
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
-        
-        # Обработчик всех неизвестных команд для отладки
-        async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            command = update.message.text.split()[0] if update.message.text else "unknown"
-            print(f"[DEBUG] Unknown command received: {command}")
-            await update.message.reply_text(f"Unknown command: {command}")
-        
-        self.app.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex("^(start|stats|today|week|language|enable|disable|config|setpairs|setp|topcoins|top|refresh|pairs|dbstats|cleanup|filters|panel|report|weeklyreport|help)"), unknown_command))
-    
+
     async def send_signal(self, signal: dict) -> bool:
         """Отправка сигнала в канал (всегда на английском)"""
         from utils.logger import logger
@@ -1171,7 +1117,5 @@ class TelegramBot:
     
     def run_polling(self):
         """Запуск бота (блокирует поток)"""
-        # Устанавливаем post_init для запуска процессора очереди
-        self.app.post_init = self.post_init
         self.app.run_polling(drop_pending_updates=True)
 
