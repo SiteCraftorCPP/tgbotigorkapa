@@ -19,6 +19,7 @@ class XTExchange(ccxt.binance):
         
         super().__init__(config)
         
+        # XT фьючерсы используют v1 API
         self.urls['api'] = {
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
@@ -136,27 +137,56 @@ class XTExchange(ccxt.binance):
         }
 
     def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
-        """Полная замена fetch_ohlcv без использования parse_ohlcvs (для XT)"""
+        """Полная замена fetch_ohlcv с использованием V4 API для XT"""
         market = self.market(symbol)
-        request = {
+        
+        # XT Futures V4 Klines API
+        # GET https://fapi.xt.com/future/market/v1/public/q/kline?symbol=btc_usdt&interval=1m&limit=500
+        url = "https://fapi.xt.com/future/market/v1/public/q/kline"
+        
+        # Маппинг таймфреймов ccxt -> XT V4
+        tf_map = {
+            '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h',
+            '1d': '1d', '3d': '3d', '1w': '1w'
+        }
+        
+        request_params = {
             'symbol': market['id'],
-            'interval': self.timeframes.get(timeframe, timeframe),
+            'interval': tf_map.get(timeframe, timeframe),
         }
         if limit is not None:
-            request['limit'] = limit
-        
-        # Получаем сырой ответ
-        response = self.fapiPublicGetKlines(self.extend(request, params))
-        
-        # XT.com возвращает список в поле 'result'
-        ohlcvs = response.get('result') or response.get('data') or []
-        
-        # Если ответ - не список, возвращаем пусто
-        if not isinstance(ohlcvs, list):
-            return []
+            request_params['limit'] = limit
             
-        # Возвращаем «чистый» список списков, который поймет pandas в XTClient
-        return ohlcvs
+        import requests
+        try:
+            resp = requests.get(url, params=request_params, timeout=10)
+            data = resp.json()
+            
+            if data.get('returnCode') == 0:
+                # XT V4 возвращает список объектов: [{"t":ts,"o":open,"h":high,"l":low,"c":close,"v":vol}, ...]
+                klines = data.get('result', [])
+                if not isinstance(klines, list):
+                    return []
+                
+                # Формируем стандартный ccxt-формат: [timestamp, open, high, low, close, volume]
+                formatted = []
+                for k in klines:
+                    formatted.append([
+                        int(k.get('t')),
+                        float(k.get('o')),
+                        float(k.get('h')),
+                        float(k.get('l')),
+                        float(k.get('c')),
+                        float(k.get('v'))
+                    ])
+                return formatted
+            else:
+                logger.error(f"XT V4 Klines API error for {symbol}: {data}")
+                return []
+        except Exception as e:
+            logger.error(f"XT V4 Klines request failed for {symbol}: {e}")
+            return []
 
 class XTClient:
     """Клиент для работы с биржей XT.com"""
@@ -197,7 +227,7 @@ class XTClient:
         """Получение OHLCV данных напрямую с XT.com"""
         try:
             if not self.exchange.markets:
-                await self._run_in_executor(self.exchange.load_markets)
+                await self._run_in_executor(self.exchange.fetch_markets)
             
             ohlcv = await self._run_in_executor(
                 self.exchange.fetch_ohlcv,
@@ -208,15 +238,8 @@ class XTClient:
             )
             
             if ohlcv and isinstance(ohlcv, list) and len(ohlcv) > 0:
-                # ВАЖНО: XT OHLCV формат: [ts, o, h, l, c, v]
-                # Берем только первые 6 элементов, так как XT может вернуть больше
-                cleaned_ohlcv = [row[:6] for row in ohlcv if isinstance(row, list) and len(row) >= 6]
-                
-                if not cleaned_ohlcv:
-                    return pd.DataFrame()
-
                 df = pd.DataFrame(
-                    cleaned_ohlcv,
+                    ohlcv,
                     columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
                 )
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
