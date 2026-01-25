@@ -19,7 +19,6 @@ class XTExchange(ccxt.binance):
         
         super().__init__(config)
         
-        # XT фьючерсы используют v1 API
         self.urls['api'] = {
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
@@ -137,7 +136,7 @@ class XTExchange(ccxt.binance):
         }
 
     def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
-        """Переопределяем для исправления KeyError: 0 (XT возвращает data: [...])"""
+        """Полная замена fetch_ohlcv без использования parse_ohlcvs (для XT)"""
         market = self.market(symbol)
         request = {
             'symbol': market['id'],
@@ -146,13 +145,18 @@ class XTExchange(ccxt.binance):
         if limit is not None:
             request['limit'] = limit
         
+        # Получаем сырой ответ
         response = self.fapiPublicGetKlines(self.extend(request, params))
         
-        # Исправление KeyError: 0
-        # XT.com возвращает {"returnCode": 0, "msgInfo": "success", "result": [...]}
-        # или {"code": 0, "data": [...]}
-        data = response.get('result') or response.get('data') or []
-        return self.parse_ohlcvs(data, market, timeframe, since, limit)
+        # XT.com возвращает список в поле 'result'
+        ohlcvs = response.get('result') or response.get('data') or []
+        
+        # Если ответ - не список, возвращаем пусто
+        if not isinstance(ohlcvs, list):
+            return []
+            
+        # Возвращаем «чистый» список списков, который поймет pandas в XTClient
+        return ohlcvs
 
 class XTClient:
     """Клиент для работы с биржей XT.com"""
@@ -204,8 +208,15 @@ class XTClient:
             )
             
             if ohlcv and isinstance(ohlcv, list) and len(ohlcv) > 0:
+                # ВАЖНО: XT OHLCV формат: [ts, o, h, l, c, v]
+                # Берем только первые 6 элементов, так как XT может вернуть больше
+                cleaned_ohlcv = [row[:6] for row in ohlcv if isinstance(row, list) and len(row) >= 6]
+                
+                if not cleaned_ohlcv:
+                    return pd.DataFrame()
+
                 df = pd.DataFrame(
-                    ohlcv,
+                    cleaned_ohlcv,
                     columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
                 )
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
