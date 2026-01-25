@@ -23,8 +23,8 @@ class XTExchange(ccxt.binance):
         self.urls['api'] = {
             'public': 'https://fapi.xt.com/fapi/v1',
             'private': 'https://fapi.xt.com/fapi/v1',
-            'fapiPublic': 'https://fapi.xt.com/fapi/v1',
-            'fapiPrivate': 'https://fapi.xt.com/fapi/v1',
+            'fapiPublic': 'https://fapi.xt.com', # Убираем /fapi/v1 чтобы ccxt сам добавил
+            'fapiPrivate': 'https://fapi.xt.com',
         }
         self.urls['test'] = self.urls['api']
         self.id = 'xt'
@@ -62,44 +62,37 @@ class XTExchange(ccxt.binance):
         if 'options' not in self.options:
             self.options = {}
         self.options['sandboxMode'] = False
-        self.urls['test'] = self.urls.get('api', self.urls)
         return self.urls
 
-    def fetch_currencies(self, params={}):
-        return {}
-    
     def fetch_markets(self, params={}):
-        """Получает список рынков с XT.com"""
+        """Получает список рынков с XT.com через V4 API (более надежно)"""
         try:
-            # Вызываем напрямую через эндпоинт v1
-            response = self.fapiPublicGetExchangeInfo(params)
+            import requests
+            # Используем V4 API для списка рынков, так как fapi/v1/exchangeInfo часто пустой
+            url = "https://fapi.xt.com/future/market/v1/public/symbol/list"
+            resp = requests.get(url, timeout=15)
+            data = resp.json()
             
-            # Обработка формата XT.com {"code": 0, "msg": "success", "data": {"symbols": [...]}}
-            data = response.get('data', {})
-            symbols = data.get('symbols', [])
-            
-            if not symbols:
-                if isinstance(data, list):
-                    symbols = data
-                elif isinstance(response, list):
-                    symbols = response
-            
+            if data.get('returnCode') != 0:
+                return []
+                
+            symbols = data.get('result', [])
             result = []
             for s in symbols:
-                id = s.get('symbol')
-                baseId = s.get('baseAsset', '').upper()
-                quoteId = s.get('quoteAsset', '').upper()
-                base = self.safe_currency_code(baseId)
-                quote = self.safe_currency_code(quoteId)
+                if s.get('quoteCurrency') != 'usdt':
+                    continue
+                
+                base = s.get('baseCurrency', '').upper()
+                quote = 'USDT'
                 symbol = f"{base}/{quote}"
                 
                 result.append({
-                    'id': id,
+                    'id': s.get('symbol'),
                     'symbol': symbol,
                     'base': base,
                     'quote': quote,
-                    'baseId': baseId,
-                    'quoteId': quoteId,
+                    'baseId': base.lower(),
+                    'quoteId': 'usdt',
                     'active': s.get('state') == 'TRADING',
                     'type': 'future',
                     'linear': True,
@@ -111,10 +104,6 @@ class XTExchange(ccxt.binance):
                     'margin': False,
                     'contract': True,
                     'contractSize': float(s.get('contractSize', 1.0)),
-                    'expiry': None,
-                    'expiryDatetime': None,
-                    'settle': quote,
-                    'settleId': quoteId,
                     'precision': {
                         'amount': int(s.get('quantityPrecision', 8)),
                         'price': int(s.get('pricePrecision', 8)),
@@ -122,13 +111,12 @@ class XTExchange(ccxt.binance):
                     'limits': {
                         'amount': {
                             'min': float(s.get('minQty', 0)) if s.get('minQty') else None,
-                            'max': float(s.get('maxQty', 0)) if s.get('maxQty') else None,
+                            'max': None,
                         },
                         'price': {
                             'min': float(s.get('minPrice', 0)) if s.get('minPrice') else None,
-                            'max': float(s.get('maxPrice', 0)) if s.get('maxPrice') else None,
+                            'max': None,
                         },
-                        'cost': {'min': None, 'max': None},
                     },
                     'info': s,
                 })
@@ -146,56 +134,24 @@ class XTExchange(ccxt.binance):
             try:
                 markets = self.fetch_markets()
                 if markets:
-                    self.markets = {m['symbol']: m for m in (markets.values() if isinstance(markets, dict) else markets) if 'symbol' in m}
+                    self.markets = {m['symbol']: m for m in markets}
             except Exception:
                 pass
         
         if self.markets and symbol in self.markets:
             return self.markets[symbol]
         
-        # Формат для XT.com Futures V1: btc_usdt (нижний регистр)
+        # Fallback если не нашли в списке
         base, quote = symbol.split('/') if '/' in symbol else (symbol[:-4], 'usdt')
         symbol_id = f"{base.lower()}_{quote.lower()}"
-        
-        market_data = {
+        return {
             'id': symbol_id,
             'symbol': symbol,
             'base': base.upper(),
             'quote': quote.upper(),
-            'baseId': base.lower(),
-            'quoteId': quote.lower(),
             'active': True,
             'type': 'future',
-            'linear': True,
-            'inverse': False,
-            'spot': False,
-            'swap': True,
-            'future': True,
-            'option': False,
-            'margin': False,
-            'contract': True,
-            'contractSize': 1.0,
-            'expiry': None,
-            'expiryDatetime': None,
-            'settle': quote.upper(),
-            'settleId': quote.lower(),
-            'precision': {
-                'amount': 8,
-                'price': 8,
-            },
-            'limits': {
-                'amount': {'min': None, 'max': None},
-                'price': {'min': None, 'max': None},
-                'cost': {'min': None, 'max': None},
-            },
-            'info': {},
         }
-        
-        if not hasattr(self, 'markets') or self.markets is None:
-            self.markets = {}
-        self.markets[symbol] = market_data
-        
-        return market_data
 
 class XTClient:
     """Клиент для работы с биржей XT.com без сторонних fallback-ов"""
@@ -216,11 +172,6 @@ class XTClient:
                 exchange_config['secret'] = config.XT_API_SECRET
             
             self.exchange = XTExchange(exchange_config)
-            try:
-                self.exchange.set_sandbox_mode(False)
-            except Exception as e:
-                logger.warning(f"XTClient: failed to disable sandbox mode: {e}")
-            
             self.executor = ThreadPoolExecutor(max_workers=5)
         except Exception as e:
             print(f"ERROR: Не удалось создать клиент XT.com: {e}")
@@ -246,8 +197,9 @@ class XTClient:
         """Получение OHLCV данных напрямую с XT.com"""
         try:
             if not self.exchange.markets:
-                await self._run_in_executor(self.exchange.load_markets)
+                await self._run_in_executor(self.exchange.fetch_markets)
             
+            # XT V1 Klines API (Binance clone)
             ohlcv = await self._run_in_executor(
                 self.exchange.fetch_ohlcv,
                 symbol,
@@ -267,79 +219,24 @@ class XTClient:
             
             return pd.DataFrame()
         except Exception as e:
-            error_str = str(e).lower()
-            if 'does not have market symbol' not in error_str and '400' not in error_str:
-                logger.warning(f"XT API OHLCV unavailable for {symbol}: {e}")
             return pd.DataFrame()
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
         """Получение текущей цены с XT.com"""
         try:
-            if not self.exchange.markets:
-                await self._run_in_executor(self.exchange.load_markets)
-            
             ticker = await self._run_in_executor(self.exchange.fetch_ticker, symbol)
-            if ticker and ticker.get('last'):
-                return ticker
-            return None
-        except Exception:
-            return None
-    
-    async def get_funding_rate(self, symbol: str) -> Optional[float]:
-        """Получение ставки финансирования с XT.com"""
-        try:
-            funding = await self._run_in_executor(self.exchange.fetch_funding_rate, symbol)
-            if funding and 'fundingRate' in funding:
-                return funding.get('fundingRate', 0)
-            return None
-        except:
-            return None
-    
-    async def get_open_interest(self, symbol: str) -> Optional[float]:
-        """Получение открытого интереса с XT.com"""
-        try:
-            oi = await self._run_in_executor(self.exchange.fetch_open_interest, symbol)
-            if oi and 'openInterest' in oi:
-                return oi.get('openInterest', 0)
-            return None
-        except:
-            return None
-    
-    async def get_orderbook(self, symbol: str, limit: int = 20) -> Optional[Dict]:
-        """Получение стакана заявок с XT.com"""
-        try:
-            if limit < 5: limit = 5
-            if not self.exchange.markets:
-                await self._run_in_executor(self.exchange.load_markets)
-            
-            orderbook = await self._run_in_executor(self.exchange.fetch_order_book, symbol, limit)
-            if orderbook and orderbook.get('bids') and orderbook.get('asks'):
-                return orderbook
-            return None
+            return ticker if ticker and ticker.get('last') else None
         except Exception:
             return None
     
     async def get_all_futures_symbols(self) -> List[str]:
         """Получение списка всех фьючерсных пар XT.com"""
         try:
-            markets = await self._run_in_executor(self.exchange.load_markets)
-            futures = [
-                symbol for symbol, market in markets.items()
-                if market.get('future') and market.get('quote') == 'USDT'
-            ]
-            return futures
+            markets = await self._run_in_executor(self.exchange.fetch_markets)
+            return [m['symbol'] for m in markets if m.get('quote') == 'USDT']
         except Exception as e:
             logger.error(f"Error getting symbols from XT: {e}")
             return []
-    
-    async def get_account_balance(self) -> Optional[Dict]:
-        """Получение баланса аккаунта XT.com"""
-        try:
-            balance = await self._run_in_executor(self.exchange.fetch_balance)
-            return balance
-        except Exception as e:
-            logger.error(f"Error getting balance from XT: {e}")
-            return None
     
     def close(self):
         """Закрытие соединения"""
