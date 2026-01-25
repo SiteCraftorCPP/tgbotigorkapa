@@ -1,278 +1,125 @@
 import os
-import ccxt
 import pandas as pd
 import asyncio
+import requests
+import time
 from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
 import config
 from utils.logger import logger
 
-class XTExchange(ccxt.binance):
-    """Кастомный класс для работы с XT.com через ccxt API (Futures V1)"""
+class XTClient:
+    """
+    Чистый клиент для XT.com API (Futures V4).
+    Никаких клонов Binance, только прямые запросы к XT.
+    """
     
-    def __init__(self, config=None):
-        if config is None:
-            config = {}
-        if 'options' not in config:
-            config['options'] = {}
-        config['options']['defaultType'] = 'future'
-        
-        super().__init__(config)
-        
-        # XT фьючерсы используют v1 API
-        self.urls['api'] = {
-            'public': 'https://fapi.xt.com/fapi/v1',
-            'private': 'https://fapi.xt.com/fapi/v1',
-            'fapiPublic': 'https://fapi.xt.com/fapi/v1',
-            'fapiPrivate': 'https://fapi.xt.com/fapi/v1',
-        }
-        self.urls['test'] = self.urls['api']
-        self.id = 'xt'
-        
-        if 'sapi' in self.urls.get('api', {}):
-            del self.urls['api']['sapi']
-        
-        self.has['fetchMarkets'] = True
-        self.has['fetchCurrencies'] = False
-        self.options['sandboxMode'] = False
-        self.markets = {}
+    def __init__(self):
+        self.base_url = "https://fapi.xt.com"
+        self.api_key = config.XT_API_KEY
+        self.api_secret = config.XT_API_SECRET
+        self.executor = ThreadPoolExecutor(max_workers=10)
+        self.markets_cache = {}
 
-    def set_sandbox_mode(self, enabled):
-        self.sandboxMode = False
-        return self.urls
-
-    def fetch_markets(self, params={}):
-        """Получает список рынков с XT.com через V4 API (более надежно)"""
+    async def _request(self, method: str, path: str, params: Dict = None) -> Dict:
+        """Прямой HTTP запрос к XT.com"""
+        url = f"{self.base_url}{path}"
         try:
-            import requests
-            url = "https://fapi.xt.com/future/market/v1/public/symbol/list"
-            resp = requests.get(url, timeout=15)
-            data = resp.json()
-            
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                self.executor, 
+                lambda: requests.request(method, url, params=params, timeout=10)
+            )
+            data = response.json()
             if data.get('returnCode') != 0:
-                return []
-                
-            symbols = data.get('result', [])
-            result = []
-            for s in symbols:
-                if s.get('quoteCurrency') != 'usdt':
-                    continue
-                
-                base = s.get('baseCurrency', '').upper()
-                quote = 'USDT'
-                symbol = f"{base}/{quote}"
-                
-                result.append({
-                    'id': s.get('symbol'),
-                    'symbol': symbol,
-                    'base': base,
-                    'quote': quote,
-                    'baseId': base.lower(),
-                    'quoteId': 'usdt',
-                    'active': s.get('state') == 'TRADING',
-                    'type': 'future',
-                    'linear': True,
-                    'inverse': False,
-                    'spot': False,
-                    'swap': True,
-                    'future': True,
-                    'option': False,
-                    'margin': False,
-                    'contract': True,
-                    'contractSize': float(s.get('contractSize', 1.0)),
-                    'precision': {
-                        'amount': int(s.get('quantityPrecision', 8)),
-                        'price': int(s.get('pricePrecision', 8)),
-                    },
-                    'limits': {
-                        'amount': {
-                            'min': float(s.get('minQty', 0)) if s.get('minQty') else None,
-                            'max': None,
-                        },
-                        'price': {
-                            'min': float(s.get('minPrice', 0)) if s.get('minPrice') else None,
-                            'max': None,
-                        },
-                    },
-                    'info': s,
-                })
-            return result
+                logger.debug(f"XT API Error {path}: {data}")
+                return {}
+            return data
         except Exception as e:
-            logger.error(f"Error fetching markets from XT: {e}")
-            return []
+            logger.error(f"XT Request failed {path}: {e}")
+            return {}
 
-    def market(self, symbol):
-        """Определяет параметры рынка для символа"""
-        if self.markets and symbol in self.markets:
-            return self.markets[symbol]
+    async def get_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
+        """Получение свечей через чистый XT Futures V4 API"""
+        # Превращаем BTC/USDT в btc_usdt
+        symbol_id = symbol.replace('/', '_').lower()
         
-        if not self.markets:
-            try:
-                markets = self.fetch_markets()
-                if markets:
-                    self.markets = {m['symbol']: m for m in markets}
-            except Exception:
-                pass
-        
-        if self.markets and symbol in self.markets:
-            return self.markets[symbol]
-        
-        base, quote = symbol.split('/') if '/' in symbol else (symbol[:-4], 'usdt')
-        symbol_id = f"{base.lower()}_{quote.lower()}"
-        return {
-            'id': symbol_id,
-            'symbol': symbol,
-            'base': base.upper(),
-            'quote': quote.upper(),
-            'active': True,
-            'type': 'future',
-            'linear': True,
-            'inverse': False,
-            'spot': False,
-            'swap': True,
-            'future': True,
-            'option': False,
-            'margin': False,
-            'contract': True,
-        }
-
-    def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
-        """Полная замена fetch_ohlcv с использованием V4 API для XT"""
-        market = self.market(symbol)
-        
-        # XT Futures V4 Klines API
-        # GET https://fapi.xt.com/future/market/v1/public/q/kline?symbol=btc_usdt&interval=1m&limit=500
-        url = "https://fapi.xt.com/future/market/v1/public/q/kline"
-        
-        # Маппинг таймфреймов ccxt -> XT V4
+        # Маппинг таймфреймов для XT
         tf_map = {
             '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
             '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h',
             '1d': '1d', '3d': '3d', '1w': '1w'
         }
         
-        request_params = {
-            'symbol': market['id'],
+        path = "/future/market/v1/public/q/kline"
+        params = {
+            'symbol': symbol_id,
             'interval': tf_map.get(timeframe, timeframe),
+            'limit': limit
         }
-        if limit is not None:
-            request_params['limit'] = limit
-            
-        import requests
-        try:
-            resp = requests.get(url, params=request_params, timeout=10)
-            data = resp.json()
-            
-            if data.get('returnCode') == 0:
-                # XT V4 возвращает список объектов: [{"t":ts,"o":open,"h":high,"l":low,"c":close,"v":vol}, ...]
-                klines = data.get('result', [])
-                if not isinstance(klines, list):
-                    return []
-                
-                # Формируем стандартный ccxt-формат: [timestamp, open, high, low, close, volume]
-                formatted = []
-                for k in klines:
-                    formatted.append([
-                        int(k.get('t')),
-                        float(k.get('o')),
-                        float(k.get('h')),
-                        float(k.get('l')),
-                        float(k.get('c')),
-                        float(k.get('v'))
-                    ])
-                return formatted
-            else:
-                logger.error(f"XT V4 Klines API error for {symbol}: {data}")
-                return []
-        except Exception as e:
-            logger.error(f"XT V4 Klines request failed for {symbol}: {e}")
-            return []
-
-class XTClient:
-    """Клиент для работы с биржей XT.com"""
-    
-    def __init__(self):
-        """Инициализация клиента XT.com"""
-        try:
-            exchange_config = {
-                'enableRateLimit': True,
-                'options': {
-                    'defaultType': 'future',
-                    'sandboxMode': False,
-                },
-            }
-            
-            if config.XT_API_KEY and config.XT_API_SECRET:
-                exchange_config['apiKey'] = config.XT_API_KEY
-                exchange_config['secret'] = config.XT_API_SECRET
-            
-            self.exchange = XTExchange(exchange_config)
-            self.executor = ThreadPoolExecutor(max_workers=10)
-        except Exception as e:
-            logger.error(f"ERROR: Не удалось создать клиент XT.com: {e}")
-            raise
-    
-    async def _run_in_executor(self, func, *args):
-        """Запуск синхронной функции ccxt в executor-е"""
-        try:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self.executor, func, *args)
-        except Exception as e:
-            import traceback
-            logger.error(f"Executor critical error: {type(e).__name__}: {e}")
-            logger.error(traceback.format_exc())
-            return None
         
-    async def get_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
-        """Получение OHLCV данных напрямую с XT.com"""
+        data = await self._request('GET', path, params)
+        result = data.get('result', [])
+        
+        if not result or not isinstance(result, list):
+            return pd.DataFrame()
+            
         try:
-            if not self.exchange.markets:
-                await self._run_in_executor(self.exchange.fetch_markets)
+            # XT V4: [{"t":123,"o":"1.1","h":"1.2","l":"1.0","c":"1.15","v":"100"}, ...]
+            df = pd.DataFrame(result)
+            df = df.rename(columns={
+                't': 'timestamp',
+                'o': 'open',
+                'h': 'high',
+                'l': 'low',
+                'c': 'close',
+                'v': 'volume'
+            })
             
-            ohlcv = await self._run_in_executor(
-                self.exchange.fetch_ohlcv,
-                symbol,
-                timeframe,
-                None,
-                limit
-            )
-            
-            if ohlcv and isinstance(ohlcv, list) and len(ohlcv) > 0:
-                df = pd.DataFrame(
-                    ohlcv,
-                    columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-                )
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df.set_index('timestamp', inplace=True)
-                for col in ['open', 'high', 'low', 'close', 'volume']:
-                    df[col] = df[col].astype(float)
-                return df
-            
-            return pd.DataFrame()
+            # Приведение типов
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df[col] = df[col].astype(float)
+                
+            df.set_index('timestamp', inplace=True)
+            return df
         except Exception as e:
+            logger.error(f"Error parsing XT OHLCV for {symbol}: {e}")
             return pd.DataFrame()
-    
+
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
-        """Получение текущей цены с XT.com"""
-        try:
-            ticker = await self._run_in_executor(self.exchange.fetch_ticker, symbol)
-            return ticker if ticker and isinstance(ticker, dict) and ticker.get('last') else None
-        except Exception:
-            return None
-    
+        """Получение цены через чистый XT API"""
+        symbol_id = symbol.replace('/', '_').lower()
+        path = "/future/market/v1/public/q/tickers"
+        params = {'symbol': symbol_id}
+        
+        data = await self._request('GET', path, params)
+        result = data.get('result', [])
+        
+        if result and isinstance(result, list):
+            t = result[0]
+            return {
+                'symbol': symbol,
+                'last': float(t.get('c', 0)),
+                'volume': float(t.get('v', 0)),
+                'high': float(t.get('h', 0)),
+                'low': float(t.get('l', 0))
+            }
+        return None
+
     async def get_all_futures_symbols(self) -> List[str]:
-        """Получение списка всех фьючерсных пар XT.com"""
-        try:
-            markets = await self._run_in_executor(self.exchange.fetch_markets)
-            if markets and isinstance(markets, list):
-                return [m['symbol'] for m in markets if m.get('quote') == 'USDT']
-            return []
-        except Exception as e:
-            logger.error(f"Error getting symbols from XT: {e}")
-            return []
-    
+        """Получение всех пар через чистый XT API"""
+        path = "/future/market/v1/public/symbol/list"
+        data = await self._request('GET', path)
+        symbols = data.get('result', [])
+        
+        pairs = []
+        for s in symbols:
+            if s.get('quoteCurrency') == 'usdt' and s.get('state') == 'TRADING':
+                base = s.get('baseCurrency', '').upper()
+                pairs.append(f"{base}/USDT")
+        return pairs
+
     def close(self):
-        """Закрытие соединения"""
         if hasattr(self, 'executor'):
             self.executor.shutdown(wait=True)
-        self.exchange = None
