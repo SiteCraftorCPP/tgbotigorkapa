@@ -408,8 +408,11 @@ class WeeklyReportScheduler:
             report = WeeklyReportGenerator.generate_report(days=7)
             message = WeeklyReportGenerator.format_report_message(report)
             
-            # Публикуем в канал
-            await self.bot.send_to_channel(message)
+            # Публикуем в канал через очередь, если она есть
+            if hasattr(self.bot, 'external_queue') and self.bot.external_queue:
+                self.bot.external_queue.put({'type': 'channel_msg', 'data': message})
+            else:
+                await self.bot.send_to_channel(message)
             
             self._last_report_date = today
             log_info("[WeeklyReport] Report published successfully")

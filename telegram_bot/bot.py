@@ -52,6 +52,30 @@ class TelegramBot:
         self._setup_handlers()
         self._flood_control_blocked_count = 0  # Счетчик заблокированных сигналов
         self._last_flood_notification_time = None  # Время последнего уведомления
+        self.external_queue = None # Очередь для сигналов из других потоков
+
+    async def _queue_processor(self):
+        """Процессор очереди сигналов (внутри асинхронного цикла бота)"""
+        from utils.logger import logger
+        import asyncio
+        while True:
+            try:
+                if self.external_queue and not self.external_queue.empty():
+                    item = self.external_queue.get_nowait()
+                    if item['type'] == 'signal':
+                        await self.send_signal(item['data'])
+                    elif item['type'] == 'admin_msg':
+                        await self.send_admin_message(item['data'])
+                    elif item['type'] == 'channel_msg':
+                        await self.send_to_channel(item['data'])
+                    self.external_queue.task_done()
+            except Exception as e:
+                logger.error(f"Queue processor error: {e}")
+            await asyncio.sleep(0.1)
+
+    async def post_init(self, application):
+        """Запуск фонового процессора после инициализации"""
+        asyncio.create_task(self._queue_processor())
     
     def _setup_handlers(self):
         """Настройка обработчиков команд"""
@@ -1145,7 +1169,9 @@ class TelegramBot:
             import traceback
             traceback.print_exc()
     
-    def run(self):
-        """Запуск бота"""
-        self.app.run_polling()
+    def run_polling(self):
+        """Запуск бота (блокирует поток)"""
+        # Устанавливаем post_init для запуска процессора очереди
+        self.app.post_init = self.post_init
+        self.app.run_polling(drop_pending_updates=True)
 
