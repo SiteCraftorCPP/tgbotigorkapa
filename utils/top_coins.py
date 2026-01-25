@@ -46,6 +46,10 @@ class TopCoinsService:
     @classmethod
     async def _fetch_from_xt(cls, limit: int) -> List[str]:
         """Получить топ пар через httpx (асинхронно)"""
+        # БЕРЕМ ЛИМИТ ИЗ НАСТРОЕК, ЕСЛИ ОН ТАМ ЕСТЬ
+        from telegram_bot.filter_panel import FilterSettings
+        actual_limit = FilterSettings.get('top_coins_limit') or limit
+        
         url = "https://fapi.xt.com/future/market/v1/public/q/tickers"
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
@@ -71,7 +75,8 @@ class TopCoinsService:
                         pairs_with_vol.append((pair, vol))
                 
                 pairs_with_vol.sort(key=lambda x: x[1], reverse=True)
-                candidates = [p for p, _ in pairs_with_vol[:max(limit, int(limit * 1.2))]]
+                # Берем чуть больше кандидатов для валидации
+                candidates = [p for p, _ in pairs_with_vol[:max(actual_limit, int(actual_limit * 1.2))]]
                 
                 # Валидация
                 from exchange.xt_client import XTClient
@@ -85,7 +90,7 @@ class TopCoinsService:
 
                 results = await asyncio.gather(*(validate(p) for p in candidates))
                 await xt.close()
-                return [p for p in results if p][:limit]
+                return [p for p in results if p][:actual_limit]
                 
             except Exception as e:
                 logger.error(f"Failed to fetch from XT V4: {e}")
@@ -96,10 +101,15 @@ class TopCoinsService:
         if not cls._cache['coins'] or not cls._cache['last_update']: return False
         return datetime.utcnow() - cls._cache['last_update'] < cls._cache['update_interval']
 
-async def update_trading_pairs_auto(limit: int = 300) -> bool:
+async def update_trading_pairs_auto(limit: int = None) -> bool:
     from database.config_manager import ConfigManager
+    from telegram_bot.filter_panel import FilterSettings
+    
+    # ПРИОРИТЕТ: Настройка из админки -> аргумент функции -> 300
+    actual_limit = FilterSettings.get('top_coins_limit') or limit or 300
+    
     try:
-        top_pairs = await TopCoinsService.fetch_top_coins(limit=limit, force_refresh=True)
+        top_pairs = await TopCoinsService.fetch_top_coins(limit=actual_limit, force_refresh=True)
         if not top_pairs: return False
         return ConfigManager.set_trading_pairs(top_pairs)
     except Exception as e:

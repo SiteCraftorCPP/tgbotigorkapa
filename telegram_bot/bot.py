@@ -885,9 +885,13 @@ class TelegramBot:
             lang = get_user_lang(user_id)
             
             from utils.top_coins import update_trading_pairs_auto
+            from telegram_bot.filter_panel import FilterSettings
             
-            # Принудительное обновление
-            success = await update_trading_pairs_auto(limit=300)
+            # Получаем актуальный лимит из настроек
+            actual_limit = FilterSettings.get('top_coins_limit') or 300
+            
+            # Принудительное обновление с учетом лимита из админки
+            success = await update_trading_pairs_auto(limit=actual_limit)
             
             if success:
                 pairs = ConfigManager.get_trading_pairs()
@@ -901,6 +905,7 @@ class TelegramBot:
 ✅ *Top coins updated successfully!*
 
 📊 *Total pairs:* {len(pairs)}
+🎯 *Limit from settings:* {actual_limit}
 
 🏆 *Top Pairs Preview:*
 {pairs_preview}
