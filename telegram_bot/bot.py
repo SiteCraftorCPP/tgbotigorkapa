@@ -899,7 +899,7 @@ class TelegramBot:
 
 💡 *Commands:*
 • `/pairs` - show current pairs list
-• `/refresh` - force update top 200
+• `/refresh` - force update top 300
 • `/setpairs` - manual set pairs
 """
             await update.message.reply_text(message.strip(), parse_mode=ParseMode.MARKDOWN)
@@ -917,22 +917,22 @@ class TelegramBot:
             from utils.top_coins import update_trading_pairs_auto
             
             # Принудительное обновление
-            success = await update_trading_pairs_auto(limit=200)
+            success = await update_trading_pairs_auto(limit=300)
             
             if success:
                 pairs = ConfigManager.get_trading_pairs()
                 
-                # Показываем первые 20 пар
-                pairs_preview = ', '.join(pairs[:20])
-                if len(pairs) > 20:
-                    pairs_preview += f"\n... +{len(pairs) - 20} more"
+                # Показываем первые 50 пар (превью)
+                pairs_preview = ', '.join(pairs[:50])
+                if len(pairs) > 50:
+                    pairs_preview += f"\n... +{len(pairs) - 50} more"
                 
                 message = f"""
 ✅ *Top coins updated successfully!*
 
 📊 *Total pairs:* {len(pairs)}
 
-🏆 *Top 20:*
+🏆 *Top Pairs Preview:*
 {pairs_preview}
 
 💡 Use `/pairs` to see full list
