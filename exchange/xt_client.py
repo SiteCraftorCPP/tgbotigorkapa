@@ -75,7 +75,7 @@ class XTExchange(ccxt.binance):
                     'spot': False,
                     'swap': True,
                     'future': True,
-                    'option': False, # Здесь было 'options', исправил на 'option' для ccxt
+                    'option': False,
                     'margin': False,
                     'contract': True,
                     'contractSize': float(s.get('contractSize', 1.0)),
@@ -163,12 +163,11 @@ class XTClient:
         """Запуск синхронной функции ccxt в executor-е"""
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self.executor, lambda: func(*args, **kwargs))
+            # Прямой вызов без lambda, чтобы избежать проблем с аргументами
+            return await loop.run_in_executor(self.executor, func, *args)
         except Exception as e:
-            # Ошибка 'option' возникала из-за попытки обращения к словарю через lambda
-            # Но корень был в ccxt.binance.market(), который ожидал поле 'option'
             logger.error(f"Executor error: {e}")
-            raise
+            return None
         
     async def get_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
         """Получение OHLCV данных напрямую с XT.com"""
@@ -176,6 +175,7 @@ class XTClient:
             if not self.exchange.markets:
                 await self._run_in_executor(self.exchange.fetch_markets)
             
+            # Прямой вызов fetch_ohlcv через executor
             ohlcv = await self._run_in_executor(
                 self.exchange.fetch_ohlcv,
                 symbol,
@@ -184,7 +184,7 @@ class XTClient:
                 limit
             )
             
-            if ohlcv and len(ohlcv) > 0:
+            if ohlcv and isinstance(ohlcv, list) and len(ohlcv) > 0:
                 df = pd.DataFrame(
                     ohlcv,
                     columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
@@ -203,7 +203,7 @@ class XTClient:
         """Получение текущей цены с XT.com"""
         try:
             ticker = await self._run_in_executor(self.exchange.fetch_ticker, symbol)
-            return ticker if ticker and ticker.get('last') else None
+            return ticker if ticker and isinstance(ticker, dict) and ticker.get('last') else None
         except Exception:
             return None
     
@@ -211,7 +211,9 @@ class XTClient:
         """Получение списка всех фьючерсных пар XT.com"""
         try:
             markets = await self._run_in_executor(self.exchange.fetch_markets)
-            return [m['symbol'] for m in markets if m.get('quote') == 'USDT']
+            if markets and isinstance(markets, list):
+                return [m['symbol'] for m in markets if m.get('quote') == 'USDT']
+            return []
         except Exception as e:
             logger.error(f"Error getting symbols from XT: {e}")
             return []
