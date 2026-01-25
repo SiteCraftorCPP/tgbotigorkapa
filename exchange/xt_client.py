@@ -159,23 +159,24 @@ class XTClient:
             logger.error(f"ERROR: Не удалось создать клиент XT.com: {e}")
             raise
     
-    async def _run_in_executor(self, func, *args, **kwargs):
+    async def _run_in_executor(self, func, *args):
         """Запуск синхронной функции ccxt в executor-е"""
         try:
             loop = asyncio.get_running_loop()
-            # Прямой вызов без lambda, чтобы избежать проблем с аргументами
             return await loop.run_in_executor(self.executor, func, *args)
         except Exception as e:
-            logger.error(f"Executor error: {e}")
+            # Логируем полный текст ошибки, а не только e (которое может быть 0)
+            import traceback
+            logger.error(f"Executor critical error: {type(e).__name__}: {e}")
+            logger.error(traceback.format_exc())
             return None
         
     async def get_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
         """Получение OHLCV данных напрямую с XT.com"""
         try:
             if not self.exchange.markets:
-                await self._run_in_executor(self.exchange.fetch_markets)
+                await self._run_in_executor(self.exchange.load_markets)
             
-            # Прямой вызов fetch_ohlcv через executor
             ohlcv = await self._run_in_executor(
                 self.exchange.fetch_ohlcv,
                 symbol,
@@ -197,6 +198,7 @@ class XTClient:
             
             return pd.DataFrame()
         except Exception as e:
+            # Ошибки уровня OHLCV не должны ломать executor
             return pd.DataFrame()
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
