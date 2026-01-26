@@ -19,7 +19,7 @@ from telegram_bot.filter_panel import FilterSettings
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 class CryptoSignalBot:
-    """Главный класс бота с оптимизированным asyncio циклом для максимальной отзывчивости"""
+    """Главный класс бота с оптимизированным asyncio циклом"""
     
     ANALYSIS_INTERVAL_SEC = 60 
     SIGNAL_TIMEFRAME = '1h'
@@ -36,14 +36,12 @@ class CryptoSignalBot:
         FilterSettings.get_all(force_reload=True)
         FilterSettings._apply_to_filters()
         
-        # Запуск Telegram Bot через встроенный асинхронный запуск
+        # Запуск Telegram Bot
         await self.telegram_bot.app.initialize()
         await self.telegram_bot.app.start()
-        # Поллинг запускаем как фоновую задачу в том же цикле
-        await self.telegram_bot.app.updater.start_polling(drop_pending_updates=True)
+        asyncio.create_task(self.telegram_bot.app.updater.start_polling(drop_pending_updates=True))
         log_info("✅ Telegram bot is online and responsive")
         
-        # Обновление пар при старте
         await update_trading_pairs_auto(limit=300)
 
     async def _analyze_one(self, pair: str, tf: str):
@@ -57,7 +55,6 @@ class CryptoSignalBot:
             if df_higher is None or df_higher.empty: return
             
             generator = SignalGenerator(pair, tf, df, df_higher, self.xt_client)
-            # generate_signal теперь полностью асинхронный
             signal = await generator.generate_signal()
             
             if signal:
@@ -74,24 +71,75 @@ class CryptoSignalBot:
                 
             start_time = time.time()
             pairs = ConfigManager.get_trading_pairs()
-            
-            # Обновляем кэш BTC
             await btc_cache.get_btc_ohlcv_1m(self.xt_client)
             
-            # Анализируем пары ПОСЛЕДОВАТЕЛЬНО с паузами, чтобы не забивать CPU
-            # Это гарантирует, что Telegram успеет обработать команды
             for pair in pairs:
                 if not self.is_running: break
                 await self._analyze_one(pair, self.SIGNAL_TIMEFRAME)
-                # Даем "подышать" событиному циклу для обработки команд ТГ
                 await asyncio.sleep(0.05) 
             
             elapsed = time.time() - start_time
             log_info(f"✨ Full scan finished: {len(pairs)} pairs in {elapsed:.1f}s")
-            
-            # Ждем до следующего интервала
-            wait_time = max(5, self.ANALYSIS_INTERVAL_SEC - (time.time() - start_time))
-            await asyncio.sleep(wait_time)
+            await asyncio.sleep(max(5, self.ANALYSIS_INTERVAL_SEC - (time.time() - start_time)))
+
+    async def monitor_loop(self):
+        """Цикл мониторинга TP/SL (Восстановлено!)"""
+        log_info("🎯 Monitoring loop started")
+        while self.is_running:
+            db = SessionLocal()
+            try:
+                active = db.query(Signal).filter(Signal.status.in_(['WAITING', 'IN_POSITION', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT'])).all()
+                for signal in active:
+                    ticker_data = await self.xt_client.get_ticker(signal.ticker)
+                    if ticker_data and ticker_data.get('last'):
+                        price = ticker_data['last']
+                        if signal.status == 'WAITING':
+                            await self._check_waiting_signal(signal, price, db)
+                        else:
+                            await self._check_position_levels(signal, price, db)
+                db.commit()
+            except Exception as e:
+                log_error(f"Monitor loop error: {e}", "monitor_loop")
+            finally:
+                db.close()
+            await asyncio.sleep(10) # Проверка каждые 10 сек
+
+    async def _check_waiting_signal(self, signal, price, db):
+        # Вход в позицию
+        if (signal.direction == 'LONG' and price <= signal.entry_price) or \
+           (signal.direction == 'SHORT' and price >= signal.entry_price):
+            signal.status = 'IN_POSITION'
+            signal.activated_at = datetime.utcnow()
+            log_info(f"🟢 Position entered: {signal.ticker}")
+
+    async def _check_position_levels(self, signal, price, db):
+        sl = signal.stop_loss
+        tp3 = signal.take_profit_3
+        result = None
+        pnl = 0
+        
+        if signal.direction == 'LONG':
+            if price <= sl:
+                result = 'LOSS'; signal.status = 'STOPPED_OUT'
+                pnl = ((sl - signal.entry_price) / signal.entry_price) * 100
+            elif price >= tp3:
+                result = 'WIN'; signal.status = 'CLOSED_FULL_TP'
+                pnl = ((tp3 - signal.entry_price) / signal.entry_price) * 100
+        else:
+            if price >= sl:
+                result = 'LOSS'; signal.status = 'STOPPED_OUT'
+                pnl = ((signal.entry_price - sl) / signal.entry_price) * 100
+            elif price <= tp3:
+                result = 'WIN'; signal.status = 'CLOSED_FULL_TP'
+                pnl = ((signal.entry_price - tp3) / signal.entry_price) * 100
+        
+        if result:
+            signal.closed_at = datetime.utcnow()
+            signal.result = result
+            signal.pnl_percent = pnl
+            # ОТПРАВЛЯЕМ В КАНАЛ!
+            await self.telegram_bot.update_signal_result(signal.signal_id, result, pnl)
+            log_info(f"🏁 Signal {signal.ticker} closed: {result} ({pnl:.2f}%)")
 
     async def _save_and_send_signal(self, signal: dict):
         ticker = signal.get('ticker', 'UNKNOWN')
@@ -128,9 +176,9 @@ class CryptoSignalBot:
         self.is_running = True
         await self.initialize()
         
-        # Запускаем все циклы в одном event loop
         await asyncio.gather(
             self.analyze_loop(),
+            self.monitor_loop(), # ТЕПЕРЬ МОНИТОРИНГ ВКЛЮЧЕН
             run_scheduled_cleanup()
         )
 
