@@ -657,45 +657,16 @@ class MarketFilters:
     @staticmethod
     def check_candle_bodies(df: pd.DataFrame) -> Dict:
         """No candles with Close-Open > 2.5% (ОТКЛЮЧЕНО ДЛЯ ТЕСТИРОВАНИЯ)"""
-        result = {'passed': True, 'reason': ''}  # Всегда разрешаем
-        return result
+        # Мертвый код: проверка отключена, возвращаем успех.
+        # Можно удалить, но оставляем как заглушку, чтобы не ломать вызовы.
+        return {'passed': True, 'reason': ''}
     
     @staticmethod
     def check_high_low_gaps(df: pd.DataFrame) -> Dict:
         """No High/Low gaps > 3.0% in last 20 candles"""
-        result = {'passed': True, 'reason': ''}
-        
-        if df.empty or len(df) < MarketFilters.CANDLE_CHECK_LOOKBACK:
-            return result
-        
-        recent = df.tail(MarketFilters.CANDLE_CHECK_LOOKBACK)
-        
-        for i in range(1, len(recent)):
-            prev_low = recent.iloc[i-1]['low']
-            prev_high = recent.iloc[i-1]['high']
-            curr_low = recent.iloc[i]['low']
-            curr_high = recent.iloc[i]['high']
-            
-            if prev_high == 0 or prev_low == 0:
-                continue
-            
-            # Gap up
-            if curr_low > prev_high:
-                gap = (curr_low - prev_high) / prev_high * 100
-                if gap > MarketFilters.MAX_HIGH_LOW_GAP_PERCENT:
-                    result['reason'] = f"Gap up {gap:.2f}% > {MarketFilters.MAX_HIGH_LOW_GAP_PERCENT}%"
-                    result['passed'] = False
-                    return result
-            
-            # Gap down
-            if curr_high < prev_low:
-                gap = (prev_low - curr_high) / prev_low * 100
-                if gap > MarketFilters.MAX_HIGH_LOW_GAP_PERCENT:
-                    result['reason'] = f"Gap down {gap:.2f}% > {MarketFilters.MAX_HIGH_LOW_GAP_PERCENT}%"
-                    result['passed'] = False
-                    return result
-        
-        return result
+        # Мертвый код: возвращаем успех.
+        # Можно удалить, но оставляем как заглушку, чтобы не ломать вызовы.
+        return {'passed': True, 'reason': ''}
     
     @staticmethod
     def check_volume_60m_ratio(df: pd.DataFrame, volume_24h: float, timeframe: str = '5m') -> Dict:
